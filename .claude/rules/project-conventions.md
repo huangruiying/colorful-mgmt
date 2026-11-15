@@ -91,8 +91,22 @@ infrastructure/client：外部协议、平台及浏览器适配
 
 - 管理后台只有一个登录账号，不提供注册；账号来自环境变量 `GEO_ADMIN_USERNAME`、`GEO_ADMIN_PASSWORD_HASH`（BCrypt 哈希），不建用户表，未配置哈希时服务拒绝启动。
 - 访问控制集中在 `infrastructure/config/security/AdminSecurityConfig`：除登录页及其样式、脚本和 `robots.txt` 外全部要求登录；新增公开资源只改这里的放行清单。未登录访问页面跳转登录页，访问接口返回 401 ProblemDetail；同一 IP 15 分钟内连续失败 5 次锁定 15 分钟（`LoginAttemptLimiter`）。
-- 写请求必须带跨站令牌：页面接口请求统一走 `shared/http.js` 的 `AdminHttp.requestJson`（自动附带 `X-XSRF-TOKEN`，401 跳转登录页），不直接使用 `fetch`；表单提交用 `AdminHttp.csrfToken()` 填 `_csrf`。新页面必须引入 `shared/http.js` 与 `shared/navigation.js`（含退出入口）。
+- 写请求必须带跨站令牌：页面接口请求统一走 `shared/http.js` 的 `AdminHttp.requestJson`（自动附带 `X-XSRF-TOKEN`，401 跳转登录页），不直接使用 `fetch`；表单提交用 `AdminHttp.csrfToken()` 填 `_csrf`。新页面必须引入 `shared/http.js`、`shared/navigation.js`（含退出入口）与 `shared/browser-takeover.js`（人工接管弹窗）。
 - 所有响应带 `X-Robots-Tag: noindex, nofollow`，并提供禁止抓取的 `robots.txt`；这只约束遵守规则的爬虫，真正的访问控制仍是登录。
+
+## 浏览器人工接管
+
+- 术语（2026-10-31 用户确认）：「浏览器人工接管」指框架：服务器上的 Playwright 页面需要人时，把实时画面推到管理页，用户在画面上点击、拖动、输入，操作转发回页面，直到调用方给出的完成条件满足。「人工验证」只是其中一个场景，不再用来指整个框架。
+- 框架与业务隔离：框架在 `infrastructure/client/playwright/takeover/`，类名前缀 `BrowserTakeover`，入口 `BrowserTakeoverRegistry.requestTakeover(页面, 标题, 原因, 完成条件)`，接口 `/browser-takeovers`；只认页面、标题、原因、完成条件和超时，不引用平台、业务枚举。场景放在 `takeover/` 下的子包（人工验证为 `takeover/verification/`），由场景决定何时请求接管、怎样算完成；平台客户端只调用场景入口。
+- 何时用接管：代码能自动处理的（弹窗、协议勾选）写在平台适配里；要人做但能用管理页表单转交的（选验证方式、填短信码）用表单；只有必须直接在平台页面上操作的（拖滑块、点选图片）才用接管。不提前做没有真实需求的场景。
+- 人工验证的识别规则集中在 `HumanVerificationRule`，只收录实际遇到并核对过页面特征的验证；不识别验证码内容、不模拟拖动、不代替用户完成验证。
+
+## 诊断报告页面与导出网页
+
+- 文件分工（2026-11-04 用户确认）：`static/admin/diagnosis-report-view.js`（`DiagnosisReportView`）渲染六个页签及证据、回答片段，页面与导出网页共用；`diagnosis-report-export.js`（`DiagnosisReportExport`）组装并下载导出网页；`diagnosis-reports.js` 是页面本身（列表、生成、详情、弹窗、补全）。页签的标识、标题、渲染函数与缺失提示只在 `DiagnosisReportView.tabs` 中定义；渲染函数不读全局状态，模型筛选与查看入口经第一个参数 `context` 传入。样式在导出时从当前页面内联。改报告页面时按下面两条写，导出自动跟上，不另改导出代码：
+  - 页签内容只用已读取的报告数据同步渲染。点开后才另调接口取得的内容不会进入导出网页，需要时在 `DiagnosisReportExport.downloadReport` 中单独读取（如回答原文）。
+  - 「看回答」「看证据」这类查看入口一律经 `context.entries` 生成（或用已有的 `quoteLine`、`answerLine`、`adviceItem`）：页面上是按钮，导出时是打开随网页导出的弹窗的链接，对应回答与证据一并导出。不在渲染函数里直接创建按钮并绑定点击，导出时按钮会被去掉。
+- 筛选、排序、展开收起等其他交互不随导出带过去；需要在导出网页中可用时，在导出模块的 `exportPageScript` 中另加。
 
 ## 已确认的大模型设计
 
@@ -104,7 +118,7 @@ infrastructure/client：外部协议、平台及浏览器适配
 - 路由一次查询选取 GeoLlmChannelEntity 后直接交给策略，不建立同字段的连接配置副本或重复传递密钥。未知 Bean 和远程空密钥在调用前拒绝；实体的密钥不得参与日志、toString 或接口响应。只有协议调用和异常边界承担实际职责的层保留，纯转发和已停用 SDK 代码及时删除。
 - LLMProtocolType 只表示 OPENAI_CHAT_COMPLETIONS、OPENAI_RESPONSES 交互格式；本地模拟策略已删除（2026-10-29），测试用 Mockito 策略替身或 `.test` 脚本的本地 HTTP 模型替身。引用始终按响应的结构化字段解析，不根据搜索标志过滤，也不从正文 URL 或搜索召回来源猜测。搜索参数按供应商处理，不把普通兼容供应商自动标为支持联网。
 - 引用只来自接口结构化数据，不把正文链接当成实际引用，不虚构引用。
-- 不返回 url_citation 的厂商由子策略重写 `collectStrategyCitations`，把接口结构化返回的来源网址补为引用：DeepSeek 取 `web_search_call` 的 `open_page`（去掉 `ws_call_id` 标识），千问、智谱取 `web_search_call.action.sources` 中 `type=url` 的网址（共用 `LlmCitationParser.collectSearchSources`）；文心（千帆智能搜索 Chat）取响应顶层 `references` 中 `type=web` 的网址与标题，正文 `^[n]^` 角标不解析。Chat 与 Responses 父类各提供同名默认空实现的补充入口。标题、摘要、位置留空且不抓取补全；检索词不作为引用；文本注解已有同一网址时保留注解资料。标准 url_citation（豆包、OpenAI）留在父类统一解析，不下沉到子策略。
+- 不返回 url_citation 的厂商由子策略重写 `collectStrategyCitations`，把接口结构化返回的来源网址补为引用：DeepSeek 取 `web_search_call` 的 `open_page`（去掉 `ws_call_id` 标识），千问、智谱取 `web_search_call.action.sources` 中 `type=url` 的网址（共用 `LLMWebSearchResultParser.collectWebSearchSources`）；文心（千帆智能搜索 Chat）取响应顶层 `references` 中 `type=web` 的网址与标题，正文 `^[n]^` 角标不解析。Chat 与 Responses 父类各提供同名默认空实现的补充入口。标题、摘要、位置留空且不抓取补全；检索词不作为引用；文本注解已有同一网址时保留注解资料。标准 url_citation（豆包、OpenAI）留在父类统一解析，不下沉到子策略。
 - `LLMQueryRequest` 仅含 `prompt`、`channelCode`、`modelName`，每次独立调用，无角色枚举、消息列表或历史上下文。重复执行通过多次独立调用完成。
 - 密钥仅供服务端使用，响应只返回 `keyConfigured`；编辑空密钥保留原值，输入新值才替换。
 

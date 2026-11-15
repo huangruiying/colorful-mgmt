@@ -11,7 +11,7 @@
     </parent>
 
     <groupId>org.huangry.colorful.baileys</groupId>
-    <artifactId>colorful-geo-mgmt</artifactId>
+    <artifactId>colorful-mgmt</artifactId>
     <version>1.0.0-SNAPSHOT</version>
 
     <properties>

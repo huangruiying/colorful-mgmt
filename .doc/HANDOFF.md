@@ -2,6 +2,96 @@
 
 > 已讨论、暂不实施的想法记录在 [TODO.md](TODO.md)，接手时一并查看。
 
+## 当前交接：诊断方案问题上限调整（2026-11-06）
+
+- 用户要求：单次自动生成问题上限 30 → 100，单个方案问题上限 200 → 500。
+- 改动：后端 `QuestionGenerateService.generate`（校验、提示文案、`@param`）、`GeoDiagnosisPlanService.validateQuestions`（校验与提示文案，补齐方法 Javadoc 参数与异常说明）；前端 `diagnose.html` 生成数量输入框 `max`、问题计数“/ 500”，`diagnosis-plans.js` 生成数量校验与方案上限三处提示；脚本版本改为 `diagnosis-plans.js?v=20261106-limit500`。设计文档 `诊断方案设计与接口.md`、`诊断任务实施计划.md` 同步上限（任务结果行最多 500 × 20 × 10 = 100000 条，仍按每 250 条批量写入）。
+- 验证：`QuestionGenerateServiceTest`（越界改为 101）3 项、`GeoDiagnosisPlanServiceTest`（新增 500 通过 / 501 拒绝）4 项通过（JDK ms-17、Maven 3.6.1 离线）；`diagnosis-plans.js` 语法检查通过。未运行全量测试，未真实调用模型生成 100 个问题。
+- 风险：一次生成 100 个问题要求模型输出完整 JSON 数组且数量严格相等，生成渠道 `max_tokens` 过小会截断导致解析失败，单次调用受 `http.llm.timeout-seconds=60` 限制；需用实际生成渠道试一次 100 个。服务未重启，改动未提交。
+
+## 当前交接：诊断报告导出网页补全证据与回答，改为页签（2026-11-04）
+
+- 原因：导出时页面按钮全部去掉，「看证据」「看回答」在导出网页里没有内容。现在导出网页与系统页面一样：六个页签切换查看，「看证据」「看回答」弹窗打开，证据弹窗里可再叠开回答弹窗。
+- 实现（只改前端）：导出由 `diagnosis-report-export.js` 的 `DiagnosisReportExport.downloadReport` 完成：查看入口是打开弹窗的链接，并收集正文引用到的证据组与回答；证据弹窗沿用 `DiagnosisReportView.renderEvidence`，回答原文用现有详情接口逐条读取（任一条失败就不下载）；`appendExportTabs` 生成页签，`exportPageScript` 以源码写入导出网页，负责切换页签与开关弹窗。`shared/html-export.js` 新增可选参数 `script`，只有诊断报告使用。页面资源版本：`diagnosis-reports.js` 为 `20261104-split2`，渲染与导出模块为 `20261104-split1`，样式为 `20261104-cleanup1`。
+- 页面整理第一部分（同日）：证据标题样式由 `#evidence-content` 改为 `renderEvidence` 加上的类 `report-evidence`，修复导出证据标题字号与间距和网站不一致（原为浏览器默认 16px）；`renderEvidence` 改为传入报告数据，不读全局 `report`；列表每页条数提为 `PAGE_SIZE`；修正 CSS 注释与导出按钮提示中「六个页签展开」的过时说法。第二部分见下条。
+- 页面整理第二部分（同日）：`diagnosis-reports.js`（681 行）按职责拆成 `diagnosis-report-view.js`（`DiagnosisReportView`，六个页签与证据、回答片段的渲染）、`diagnosis-report-export.js`（`DiagnosisReportExport`，导出网页）和页面本身 `diagnosis-reports.js`；去掉全局开关 `exportRefs`，渲染函数经第一个参数 `context` 接收模型筛选与查看入口（页面是按钮，导出是链接并收集引用）；页签表 `tabs` 带渲染函数与缺失字段；各页签渲染函数注明后端数据来源（`Report*Summarizer`、`ReportLlmAnalyzer`），补齐函数注释；生成报告的提交处理抽为 `submitCreate`。行为不变：用用户提供的真实报告 #10 及派生的两模型、缺内容报告，在无头 Chrome 中采集重构前后的列表分页、生成窗口、六个页签、全部证据弹窗、回答弹窗、模型筛选、补全、导出网页（含导出网页里的页签与弹窗操作）共 86 项，逐项完全一致，页面无脚本错误；采集前同一代码连跑两次结果一致。前端 Node 测试 63 项中 11 项失败，均为既有（`browser-login.test.cjs` 9 项、`http.test.cjs` 2 项），不涉及报告页。比对用的测试服务器与脚本留在临时目录，未放进项目。
+- 同日清理：列表翻页、查询处 3 个 `loadList().catch(...)` 为死代码（列表轮询的 `refresh` 已在内部把错误交给 `onError` 提示，不会失败），改为直接调用并注明原因；重跑 86 项比对与留底一致，另验证第二页列表返回 503 时列表上方仍显示错误、无未处理异常。
+- 规则：项目约定「诊断报告页面与导出网页」一节：改报告页面时内容只用报告数据同步渲染、查看入口经 `context.entries` 生成，导出自动跟上。
+- 验证：用户导出的真实报告 #10 核对 187 个入口均有对应弹窗（证据 14、回答 12），无头 Chrome 截图与网站对比证据弹窗、回答弹窗一致；用该报告内容组装新页签页面，验证切换页签、页签内打开弹窗、地址不跳转；`buildViewEntry`、`loadAnswers` 单独验证。报告页无前端自动化测试，未对新版页签再导出一份真实文件。
+- 限制：只为网页查看设计，不考虑打印（用户确认）；导出网页依赖内置脚本，禁止脚本的预览打开时页签与弹窗无反应。回答详情带厂商原始响应，1M 带宽服务器上导出较慢。改动未提交，服务未重启（前端文件已同步到运行实例）。
+- 同期小改：`LlmCitationParser` 移到 `llm/tools` 并改名 `LLMWebSearchResultParser`（方法 `collectUrlCitations`、`collectWebSearchSources`）；OpenAI 渠道（`chatgpt`，gpt-5.5）首次真实调用因填了随机性 0.2 被拒（该模型不接受 temperature），需在渠道配置中清空。
+
+## 当前交接：浏览器人工接管的操作按原间隔回放（2026-11-01）
+
+- 原因：原来前端连续移动只保留最新一次，服务端每 100ms 一口气执行完积压的操作，拖滑块的轨迹被压成一串。现在改为如实回放用户的真实操作，不补点、不平滑、不生成轨迹。
+- 前端 `shared/browser-takeover.js`（版本 `20261101-replay1`，12 个页面已改）：每个操作带发生时间 `clientTimeMillis`（事件 `timeStamp`）；移动用 `getCoalescedEvents` 取一帧内的全部原始采样点，相邻不足 5ms 的跳过（每个事件的最后一点保留）；每 50ms 打包 `POST /browser-takeovers/{id}/inputs`，一次只有一个请求在途。用 HTTP（非 localhost）访问时浏览器可能不给原始采样点，退回每帧一个点。
+- 服务端：`BrowserTakeover.addInputs` 整批校验、整批放入，积压上限 200→500；`BrowserTakeoverSession.dispatchDueInputs` 按发生时间排定执行时刻：每段第一个点推迟 100ms，相邻间隔不变；晚到超过 30ms 的点从它重新计时，30ms 以内照原时刻表补上；停顿超过 1 秒或换了窗口重新对时。`BrowserTakeoverRegistry` 每轮 100ms 确认截图、检查完成条件各一次，轮内按执行时刻等待和执行，队列空时每 10ms 看一次；注入 `Clock`，测试用可拨动的时钟。
+- 接口：`POST .../input`（一个操作）改为 `POST .../inputs`（一批）。重启服务后要刷新已打开的管理页：旧脚本请求旧地址会得到 404，被当成“接管已结束”，操作静默丢弃。
+- 验证：新增会话计时测试 3 项、登记表回放间隔测试 1 项，原有接管测试改为批量接口；反向检查：去掉“轮内放弃即停”和“晚到容差”后，对应测试会失败。Java 全量 494 项，仅既有 `shouldRejectDisabledExactTaskChannel` 失败。前端只做了 `node --check` 语法检查，未在浏览器里实测；服务未重启。
+- 风险与待定：服务器带宽 1M，取画面仍是每 80ms 拉一次完整画面，会占满带宽，操作请求排在画面后面会变慢；回放会自动加大缓冲，表现为拖动中多一段停顿、整体延迟变大。带宽优化（只取新画面、降低画质等）待用户决定。同一接管在多个窗口都能操作，两路操作会混进同一个队列；用户确认以后做多账号、接管与发起人绑定，不做窗口操作权，方案见 `.doc/管理后台多账号-方案.md`。
+- 下一步：本机找一个真实滑块（如腾讯验证码）拖一次，看回放效果。
+
+## 当前交接：浏览器人工接管框架 + 人工验证场景，搜狐号试点（2026-10-31）
+
+- 术语（用户确认）：**浏览器人工接管**是框架（技术），服务器 Playwright 页面需要人时把实时画面推到管理页，用户点击、拖动、输入，操作转发回页面，直到调用方的完成条件满足；**人工验证**是第一个场景（业务侧），识别到平台验证就请求接管，验证消失即完成。只有必须直接在平台页面上操作的（拖滑块等）才用接管；代码能处理的（弹窗、协议勾选）和能用管理页表单转交的（填短信码）不用。设计见 `.doc/20261029_login_use_config/浏览器人工接管框架-详细设计.md`（原名“人工验证框架-详细设计.md”）。
+- 代码：框架 `infrastructure/client/playwright/takeover/`（入口 `BrowserTakeoverRegistry.requestTakeover(页面, 标题, 原因, 完成条件)`，不引用平台、业务枚举）；场景 `takeover/verification/`（`HumanVerificationRule`、`HumanVerificationTakeover.ensureHumanVerified`）；接口 `MgmtBrowserTakeoverController`（`/browser-takeovers`）；前端 `shared/browser-takeover.js`（12 个管理页引入，`components.css` 版本 `20261031-takeover1`）；配置 `colorful.geo.browser-takeover.timeout-seconds`（默认 600）。
+- 关键约束：Playwright 对象只能在创建它的线程使用，所以由请求接管的后台线程循环转发操作、截图和检查完成条件，HTTP 线程只读帧、放操作、标记放弃。
+- 搜狐号接入：`/clientAuth` 不再直接失败，改为人工接管；完成后写回登录态（`PlatformBrowserLoginDao.updateStorageState`），下次预发布不再要求验证。
+- 验证：新增单测 20 项，Java 全量 490 项，仅既有 `shouldRejectDisabledExactTaskChannel` 失败；本机无头 Chromium 模拟验证页（路由拦截，不访问真实站点）走“人工验证场景 → 接管框架”全链路，点击、输入、拖动滑块均生效，结局 COMPLETED，无验证时 NOT_REQUIRED。前端未写自动化测试，未在浏览器里实际打开窗口。
+- 真实实测（2026-10-31，本机）：用户重启服务、重新登录搜狐号后提交预发布，弹出接管窗口，在窗口中完成搜狐安全验证，记录 59 预发布成功（草稿 1095458552）。用户确认可用。
+- 未完成：未在服务器部署环境实测；三期（其他平台接入人工验证）未开始。测试草稿：搜狐 1095457765（未触发验证那次）、1095458552。
+
+## 当前交接：一点资讯、慕课网、抖音接入预发布（2026-10-31）
+
+19 个平台已全部登录。无预发布的 6 个中，本次接入 3 个，3 个仍受阻：
+
+| 平台 | 结果 | 要点 |
+|---|---|---|
+| 一点资讯 | 已实现，真实账号跑通 | `#/Writing/articleEditor`，标题 `input.post-title`（5–64 字，超出在打开浏览器前拒绝），正文 `div.editor-content`。存草稿前端校验：必须选内容声明（未选只弹一闪而过的“请选择内容声明”，不发请求），封面选“默认”可不传图。内容声明固定“内容由AI生成”（用户可要求改）。`POST /model/Article` 返回 `{"id":...}`；草稿地址 `#/Writing/{id}?from=articleEditor`。实测 1141534006604800、1141538193580352。 |
+| 慕课网 | 已实现，真实账号跑通 | `article/publish` 切“Markdown”编辑器（`.editor__inner`，同 CSDN），正文为 Markdown 原文。自动保存 `POST /article/savedraft`（`editor=0`，带正文的那次为准）返回 `{"result":0,"data":id}`；草稿地址 `/article/draft/id/{id}`。实测 208443–208446。 |
+| 抖音 | 已实现，部分实测 | 文章只有一个草稿位。打开 `content/upload?default-tab=5` 时等页面自身的草稿查询 `POST /web/api/media/aweme/draft`（200），响应带 `draft.creation_id` 即已有未发布文章 → 拒绝不覆盖（“继续编辑”提示晚于“我要发文”约 2 秒出现，不能以提示为准）。否则“我要发文” → 标题（≤30 字，超出拒绝）+ tiptap 正文 → “暂存离开” → “继续编辑”打开 `post/article?enter_from=draft&creation_id=…` 回读，creation_id 为草稿 ID。已实测：被占用时拒绝；各步骤用脚本分别实测。未实测：草稿位为空时的完整 Java 流程（草稿位被测试文章 onufykqd1793431499893 占用，页面无删除入口）。 |
+| 51CTO | 受阻 | `blog.51cto.com/blogger/publish` HTML 可打开，但脚本、样式在被拦截的 `static*.51cto.com`，编辑器不加载；需用户在自己浏览器抓保存草稿请求后按接口实现。 |
+| 网易号 | 受阻 | 账号仍在审核中，今日可发 0/0。 |
+| 人人都是产品经理 | 受阻 | 仍需实名认证。 |
+
+- 新增 `publish/browser/{yidian,imooc,douyin}` 与对应策略、单测（20 个）。Java 全量通过（仅既有 `shouldRejectDisabledExactTaskChannel` 失败）。服务未重启。
+- 测试草稿（标题“测试草稿可删除+数字”）：一点资讯 4 篇、慕课网 4 篇、抖音 1 篇（占用草稿位），用户可删除。
+
+## 当前交接：浏览器登录页“检测”按钮防重复点击（2026-10-31）
+
+- 点击“检测”后按钮置灰并显示“检测中…”，结束（成功或失败）后随列表重绘恢复；正在检测的平台记在 `checkingPlatforms`，期间列表重绘仍保持禁用，刷新页面即清空。
+- `browser-login.js` 版本 `20261031-check1`；JS 语法检查通过，`browser-login.test.cjs` 仍是既有 9 项失败。
+
+## 当前交接：抖音检测登录态误报“无法确认”（2026-10-31）
+
+- 原因 1：`PlatformScanLoginClient.probeSavedDouyinPageAccount` 调用 `page.waitForFunction(表达式, 选项)`，Playwright Java 的两参数版本第二个参数是传给页面函数的参数，传选项直接抛“Unsupported type of argument”，被捕获后返回无法确认——主页核验从未真正执行。改为三参数 `(表达式, null, 选项)`。全项目其他 `waitForFunction` 均为正确写法。
+- 原因 2：兜底的账号接口 `creator.douyin.com/aweme/v1/creator/pc/user/info/` 新格式把账号 ID 放在最外层 `uid`、无昵称，`parseDouyinAccount` 只认 `user_info.uid`、`data.user_id`。补充最外层 `uid`，以 ID 展示。
+- 验证：用用户刚登录的数据库会话直接调用 `verifySavedLogin`，修复前 UNKNOWN，修复后 LOGGED_IN（A9.888888888.）；新增 1 个单测，Java 全量 449 个，仅既有的 `shouldRejectDisabledExactTaskChannel` 失败。服务未重启。
+
+## 当前交接：移除搜狐焦点（2026-10-31）
+
+- 用户确认搜狐焦点是房产平台，不需要。删除 `PublicationPlatformType.SOHU_FOCUS` 及其表单站点、账号解析（含转义还原）、第三方微信入口与协议勾选、前端协议链接、`config/browser-login.md` 说明和对应单测；`PlatformAccountLoginClient` 不再使用的正则 import 一并删除。
+- 数据库无搜狐焦点的登录或发布记录。`browser-login.js` 版本 `20261031-no-focus1`。
+- 验证：Java 全量 448 个，仅既有的 `shouldRejectDisabledExactTaskChannel` 失败。服务未重启。
+
+## 当前交接：小红书预发布改为只保存确认稿（2026-10-30）
+
+- 原因：小红书网页版草稿只存在浏览器本地（IndexedDB），系统临时浏览器关闭即消失，用户 App 永远看不到，原“建草稿后返回预发布成功”为假成功。
+- 改动：`XiaohongshuPublicationStrategy.execPrePublish` 不再打开浏览器，直接返回预发布成功（远程 ID、草稿链接为空）；确认稿本就保存在发布记录中，发布时再写入并发布（未实现，实现思路写在该类注释）。`XiaohongshuBrowserClient` 保留但未被调用。
+- 注意：预发布成功的说明文字不会落库（`savePrePublishResult` 成功时不保存 message），页面只显示“预发布成功”。
+- 历史发布记录 #49（小红书，“预发布成功”）是旧逻辑的假成功，用户未决定是否处理。
+- 验证：Java 全量 453 个，仅既有的 `shouldRejectDisabledExactTaskChannel` 失败。服务未重启。
+
+## 当前交接：预发布改为后台执行（浏览器人工接管框架一期，2026-10-30）
+
+- 设计文档：`.doc/20261029_login_use_config/浏览器人工接管框架-详细设计.md`（一期已完成；二期 2026-10-31 完成，见上方交接）。
+- 提交预发布 `POST /content-publish/{id}/pre-publish` 只为每个平台插入“初始化”（待预发布）记录后立即返回，不再在请求里调用平台。
+- 新增 `presentation/task/ContentPrePublishWorker`：应用启动后在专用单线程池 `prePublishTaskExecutor` 中每秒扫描；`ContentPublishRecordService.claimNextInitializedRecord` 用带状态条件的更新领取（初始化→预发布中，成功才算领到），用记录里的确认稿快照调用平台，再 `savePrePublishResult` 回写。平台间串行；单条回写失败只记日志、记录停在“预发布中”待核对，不影响后续；领取失败暂停 5 秒。开关 `content.prepublish.worker.enabled`（默认 true，关闭后记录停在“初始化”）。
+- 服务重启：遗留“预发布中”记录不改动（即待核对），不自动重试；未加数据库会话锁，防重复靠条件更新。
+- 删除：原 `ContentPublishRecordService.startPrePublish` 与 Business 对 `ContentPublicationService` 的依赖。
+- 前端：内容优化详情弹窗、发布记录页在有“待预发布 / 预发布中”记录时每 3 秒刷新，全部结束即停，最长 15 分钟；提交按钮文案改为“正在提交…”。资源版本 `contents.js` / `publications.js` `?v=20261030-async1`。
+- 验证：新增/调整单测（Worker 3、Service 领取 3、Business 1）；Java 全量 452 个，仅既有的 `shouldRejectDisabledExactTaskChannel` 失败。未启动服务做真实接口回归；服务未重启。
+
 ## 当前交接：发布记录按文章筛选，支持拼音搜索（2026-10-30）
 
 - 发布记录页“发布列表”右上角新增可输入下拉框：列出有发布记录的文章（每篇一项，标题取该文章最新一条发布记录的标题快照），输入汉字、全拼或首字母都能模糊匹配（不分大小写、忽略空格），选中后按文章 ID 筛选，第一项“全部文章”清除筛选；支持上下键、回车、Esc。
