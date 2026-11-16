@@ -80,13 +80,23 @@ class ResultJudgePromptTest {
     /** 点名问题附项目资料用于判断准确性，其他分组不附，避免模型用资料替代回答内容。 */
     @Test
     void shouldAttachProjectFactsOnlyForBrandQuestions() {
-        String brandPrompt = analysisPrompt.buildPrompt(project, JSON.parseObject("{\"text\":\"团油靠谱吗\",\"brandScope\":\"BRAND\"}"), answer);
-        String nonBrandPrompt = analysisPrompt.buildPrompt(project, JSON.parseObject("{\"text\":\"加油省钱\",\"brandScope\":\"NON_BRAND\"}"), answer);
+        String brandPrompt = analysisPrompt.buildPrompt(project, JSON.parseObject("{\"text\":\"团油靠谱吗\",\"brandScope\":\"BRAND\"}"), answer, "中文");
+        String nonBrandPrompt = analysisPrompt.buildPrompt(project, JSON.parseObject("{\"text\":\"加油省钱\",\"brandScope\":\"NON_BRAND\"}"), answer, "中文");
 
         assertTrue(brandPrompt.contains("核心卖点：站点多"));
         assertFalse(nonBrandPrompt.contains("核心卖点：站点多"));
         assertTrue(nonBrandPrompt.contains("能链团油、车主邦"));
         assertTrue(nonBrandPrompt.contains(answer));
+    }
+
+    /** 观点概括与维度名按报告语言书写，原文片段保持回答的语言，外语回答的报告才不会中外文混排。 */
+    @Test
+    void shouldWriteSummariesInReportLanguageAndKeepQuotesOriginal() {
+        String prompt = analysisPrompt.buildPrompt(project, JSON.parseObject("{\"text\":\"Which fuel app is best?\",\"brandScope\":\"NON_BRAND\"}"),
+                "Tuanyou is the best.", "英语");
+
+        assertTrue(prompt.contains("points 的 content 和 dimension 用英语书写"));
+        assertTrue(prompt.contains("quote 保持回答原文的语言，不翻译"));
     }
 
     /** @return 注入规则组件的判定器 */

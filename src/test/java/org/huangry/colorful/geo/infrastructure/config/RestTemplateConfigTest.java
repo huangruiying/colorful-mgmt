@@ -128,7 +128,8 @@ class RestTemplateConfigTest {
             assertFalse(searchBody.containsKey("temperature"));
             assertFalse(searchBody.containsKey("max_tokens"));
             channel.setModelName("test-model");
-            var responses = context.getBean(ResponsesApiDoubaoStrategy.class).query(new LLMQueryRequest("问题"), channel);
+            // 诊断执行要求联网时，豆包策略的搜索工具随请求原样发出
+            var responses = context.getBean(ResponsesApiDoubaoStrategy.class).query(LLMQueryRequest.withWebSearch("问题"), channel);
             assertEquals("回答", responses.getContent());
             assertEquals("https://source.example", responses.getCitations().get(0).url());
             assertTrue(payload.get().contains("web_search"));

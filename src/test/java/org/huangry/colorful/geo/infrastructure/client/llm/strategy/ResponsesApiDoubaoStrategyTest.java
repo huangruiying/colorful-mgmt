@@ -17,7 +17,7 @@ class ResponsesApiDoubaoStrategyTest {
         var channel = new GeoLlmChannelEntity();
         channel.setModelName("doubao-seed-2-1-pro-260915");
         channel.setMaxTokens(2000);
-        var body = new ResponsesApiDoubaoStrategy().buildRequestBody(new LLMQueryRequest("今天有什么 AI 领域的热点新闻？"), channel);
+        var body = new ResponsesApiDoubaoStrategy().buildRequestBody(LLMQueryRequest.withWebSearch("今天有什么 AI 领域的热点新闻？"), channel);
 
         assertEquals(List.of(Map.of("type", "web_search", "sources", List.of("doubao"))), body.get("tools"));
         assertEquals("required", body.get("tool_choice"));

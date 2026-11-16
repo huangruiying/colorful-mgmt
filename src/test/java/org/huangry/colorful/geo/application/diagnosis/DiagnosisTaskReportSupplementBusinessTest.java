@@ -35,14 +35,14 @@ class DiagnosisTaskReportSupplementBusinessTest {
     private final DiagnosisTaskReportBusiness reportBusiness = mock(DiagnosisTaskReportBusiness.class);
     private final GeoLlmChannelEntity channel = new GeoLlmChannelEntity();
 
-    /** 重算结果里的 ①② 被丢弃，原汇总的 ①② 保留；③–⑥ 与建议写入，判定渠道沿用报告冻结的那个。 */
+    /** 重算结果里的 ①② 被丢弃，原汇总的 ①② 保留；③–⑥ 与建议写入，判定渠道和报告语言沿用报告记下的。 */
     @Test
     void shouldMergeOnlyNewPartsIntoFrozenSummary() {
         when(reportDao.selectById(9L)).thenReturn(report("SUCCEEDED", "{\"sample\":{\"validAnswers\":7},\"models\":[]}"));
         when(summarizer.buildSummary(any(), any(), any(), any(), eq("v1"))).thenReturn(new JSONObject()
                 .fluentPut("sample", new JSONObject().fluentPut("validAnswers", 99)).fluentPut("brand", new JSONObject())
                 .fluentPut("competitor", new JSONObject()).fluentPut("source", new JSONObject()).fluentPut("issues", new JSONArray()));
-        when(llmAnalyzer.generateAdvice(any(), any(), same(channel), eq(9L))).thenReturn(new JSONObject().fluentPut("status", "NO_ISSUES"));
+        when(llmAnalyzer.generateAdvice(any(), any(), same(channel), eq(9L), eq("中文"))).thenReturn(new JSONObject().fluentPut("status", "NO_ISSUES"));
 
         business.supplementReport(9L);
 
@@ -96,7 +96,7 @@ class DiagnosisTaskReportSupplementBusinessTest {
         JSONObject summary = JSON.parseObject(saved.getValue());
         assertTrue(summary.getJSONObject("brand").getBooleanValue("recalculated"));
         assertTrue(summary.getJSONObject("issues").getBooleanValue("frozen"));
-        verify(llmAnalyzer, never()).generateAdvice(any(), any(), any(), anyLong());
+        verify(llmAnalyzer, never()).generateAdvice(any(), any(), any(), anyLong(), any());
     }
 
     /** 同一份报告补全期间再次补全被拒绝；补全结束后释放，可以再次进入。 */
@@ -104,9 +104,9 @@ class DiagnosisTaskReportSupplementBusinessTest {
     void shouldRejectSameReportWhileSupplementing() {
         when(reportDao.selectById(9L)).thenReturn(report("SUCCEEDED", "{\"sample\":{}}"));
         when(summarizer.buildSummary(any(), any(), any(), any(), any())).thenReturn(new JSONObject().fluentPut("issues", new JSONArray()));
-        when(llmAnalyzer.generateAdvice(any(), any(), any(), anyLong())).thenReturn(new JSONObject().fluentPut("status", "NO_ISSUES"));
+        when(llmAnalyzer.generateAdvice(any(), any(), any(), anyLong(), any())).thenReturn(new JSONObject().fluentPut("status", "NO_ISSUES"));
         // 第一次补全调用模型期间，同一份报告再次请求补全
-        when(llmAnalyzer.normalizeDimensions(any(), any(), anyLong())).thenAnswer(invocation -> {
+        when(llmAnalyzer.normalizeDimensions(any(), any(), anyLong(), any())).thenAnswer(invocation -> {
             assertEquals("该报告正在补全，请稍候", assertThrows(IllegalArgumentException.class, () -> business.supplementReport(9L)).getMessage());
             return Map.of();
         });
@@ -129,13 +129,13 @@ class DiagnosisTaskReportSupplementBusinessTest {
         when(channelService.getById(6L)).thenReturn(channel);
         when(reportService.getTaskSnapshot(30L)).thenReturn(new JSONObject().fluentPut("project", new JSONObject().fluentPut("name", "团油")));
         when(reportService.loadAnswers(anyLong())).thenReturn(List.of());
-        when(llmAnalyzer.normalizeDimensions(any(), any(), anyLong())).thenReturn(Map.of());
+        when(llmAnalyzer.normalizeDimensions(any(), any(), anyLong(), any())).thenReturn(Map.of());
     }
 
     /**
      * @param status 报告状态
      * @param summary 冻结的汇总 JSON，可为 null
-     * @return 诊断任务 30 的报告 9，判定渠道为 6
+     * @return 诊断任务 30 的报告 9，判定渠道为 6，报告语言为中文（报告语言加入前生成的报告由表默认值记为中文）
      */
     private GeoDiagnosisTaskReportEntity report(String status, String summary) {
         var report = new GeoDiagnosisTaskReportEntity();
@@ -145,6 +145,7 @@ class DiagnosisTaskReportSupplementBusinessTest {
         report.setSummary(summary);
         report.setJudgeChannelSnapshot("{\"id\":6,\"channelName\":\"判定\"}");
         report.setPromptVersion("v1");
+        report.setReportLanguage("中文");
         return report;
     }
 }

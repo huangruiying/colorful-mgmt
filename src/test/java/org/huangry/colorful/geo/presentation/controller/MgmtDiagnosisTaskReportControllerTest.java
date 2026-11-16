@@ -4,6 +4,7 @@ import org.huangry.colorful.geo.application.diagnosis.DiagnosisTaskReportBusines
 import org.huangry.colorful.geo.application.diagnosis.DiagnosisTaskReportSupplementBusiness;
 import org.huangry.colorful.geo.application.diagnosis.model.DiagnosisTaskReportResponse;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.MediaType;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -21,16 +22,17 @@ class MgmtDiagnosisTaskReportControllerTest {
     private final DiagnosisTaskReportSupplementBusiness supplementBusiness = mock(DiagnosisTaskReportSupplementBusiness.class);
     private final MockMvc mvc = createMvc();
 
-    /** 生成报告返回 201 与判定进度；业务拒绝映射为 400 并带原因。 */
+    /** 生成报告返回 201 与判定进度，请求体带报告语言；刷新前的旧页面不带请求体，按未指定语言交给业务层；业务拒绝映射为 400 并带原因。 */
     @Test
     void shouldCreateReportOrExplainRejection() throws Exception {
-        when(business.createReport(30L)).thenReturn(new DiagnosisTaskReportResponse(9L, 30L, "加油诊断", "团油", "PENDING",
-                new DiagnosisTaskReportResponse.ProgressResponse(70, 70, 0, 0), null, null, null, null, null, null, null, null))
-                .thenThrow(new IllegalArgumentException("该诊断任务已有报告正在生成，请等待完成"));
+        when(business.createReport(30L, "英语")).thenReturn(new DiagnosisTaskReportResponse(9L, 30L, "加油诊断", "团油", "PENDING",
+                new DiagnosisTaskReportResponse.ProgressResponse(70, 70, 0, 0), null, null, "英语", null, null, null, null, null, null));
+        when(business.createReport(30L, null)).thenThrow(new IllegalArgumentException("该诊断任务已有报告正在生成，请等待完成"));
 
-        mvc.perform(post("/diagnosis-reports/diagnosis-tasks/30"))
+        mvc.perform(post("/diagnosis-reports/diagnosis-tasks/30").contentType(MediaType.APPLICATION_JSON).content("{\"reportLanguage\":\"英语\"}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").value(9))
+                .andExpect(jsonPath("$.reportLanguage").value("英语"))
                 .andExpect(jsonPath("$.progress.total").value(70))
                 .andExpect(jsonPath("$.summary").doesNotExist());
         mvc.perform(post("/diagnosis-reports/diagnosis-tasks/30"))
@@ -42,7 +44,7 @@ class MgmtDiagnosisTaskReportControllerTest {
     @Test
     void shouldSupplementReportOrExplainRejection() throws Exception {
         when(supplementBusiness.supplementReport(9L)).thenReturn(new DiagnosisTaskReportResponse(9L, 30L, "加油诊断", "团油", "SUCCEEDED",
-                new DiagnosisTaskReportResponse.ProgressResponse(70, 0, 70, 0), null, "v1", null, null, null, null, null, null))
+                new DiagnosisTaskReportResponse.ProgressResponse(70, 0, 70, 0), null, "v1", "中文", null, null, null, null, null, null))
                 .thenThrow(new IllegalArgumentException("该报告内容完整，无需补全"));
 
         mvc.perform(post("/diagnosis-reports/9/supplement")).andExpect(status().isOk()).andExpect(jsonPath("$.id").value(9));

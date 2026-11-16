@@ -70,7 +70,7 @@ class DiagnosisTaskReportBusinessTest {
     /** 未选择任务、未知状态与越界分页在调用服务和查询前拒绝。 */
     @Test
     void shouldRejectInvalidInput() {
-        assertThrows(IllegalArgumentException.class, () -> business.createReport(0L));
+        assertThrows(IllegalArgumentException.class, () -> business.createReport(0L, "中文"));
         assertThrows(IllegalArgumentException.class, () -> business.listReports(null, "DONE", 0, 10));
         assertThrows(IllegalArgumentException.class, () -> business.listReports(null, null, 0, 101));
         verifyNoInteractions(service);

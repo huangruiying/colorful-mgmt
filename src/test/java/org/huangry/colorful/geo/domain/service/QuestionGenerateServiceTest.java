@@ -34,22 +34,29 @@ class QuestionGenerateServiceTest {
         project.setAliases(List.of("微诺拉"));
         project.setIndustry("企业知识库");
         project.setTargetAudience("开发者");
+        project.setTargetMarket("北美");
+        project.setTargetLanguage("英语");
     }
 
+    /** 母题带上本次地域（去空白、去重），项目资料不含目标市场、目标语言；制题不联网，结果不落库。 */
     @Test
     void shouldReturnReviewedCandidatesWithoutSaving() {
         when(client.query(any(LLMQueryRequest.class))).thenReturn(LLMResponse.withoutCitations(
                 "```json\n[{\"text\":\"企业知识库有哪些？\",\"intent\":\"RECOMMENDATION\",\"brandScope\":\"NON_BRAND\"}]\n```"));
-        var candidates = service.generate(project, "generator", 1, "中文");
+        var candidates = service.generate(project, "generator", 1, "中文", List.of("美国", " 德国 ", "美国"));
         assertEquals("GENERATED", candidates.get(0).getSource());
         assertEquals("中文", candidates.get(0).getLanguage());
         assertNull(candidates.get(0).getRegion());
         var request = ArgumentCaptor.forClass(LLMQueryRequest.class);
         verify(client).query(request.capture());
         assertEquals("generator", request.getValue().channelCode());
-        assertTrue(request.getValue().prompt().contains("开发者"));
-        // 项目资料里的目标语言只作背景，问题语言以本次指定为准
-        assertTrue(request.getValue().prompt().contains("项目资料里的目标语言只作背景"));
+        assertFalse(request.getValue().enableWebSearch());
+        String prompt = request.getValue().prompt();
+        assertTrue(prompt.contains("开发者"));
+        assertTrue(prompt.contains("目标地域：[\"美国\",\"德国\"]"));
+        // 母题针对本次地域，项目档案里的目标市场、目标语言不发给模型
+        assertFalse(prompt.contains("北美"));
+        assertFalse(prompt.contains("targetLanguage"));
         verify(plans, never()).savePlan(any(), any(), any());
     }
 
@@ -73,7 +80,10 @@ class QuestionGenerateServiceTest {
         assertEquals("generator", request.getValue().channelCode());
         assertTrue(request.getValue().prompt().contains("\"德国\""));
         assertTrue(request.getValue().prompt().contains("企业知识库有哪些？"));
-        assertTrue(request.getValue().prompt().contains("项目资料里的目标市场、目标语言只作背景"));
+        // 地域和语言只看本次输入，项目档案里的目标市场、目标语言不发给模型；改写不联网
+        assertFalse(request.getValue().prompt().contains("北美"));
+        assertFalse(request.getValue().prompt().contains("targetMarket"));
+        assertFalse(request.getValue().enableWebSearch());
         verify(plans, never()).savePlan(any(), any(), any());
     }
 
@@ -141,14 +151,18 @@ class QuestionGenerateServiceTest {
                 "[{\"text\":\"企业知识库推荐？\",\"intent\":\"RECOMMENDATION\",\"brandScope\":\"NON_BRAND\"}] trailing",
                 "[{\"text\":\"企业知识库推荐？\",\"intent\":\"RECOMMENDATION\",\"brandScope\":\"NON_BRAND\"}] {}")) {
             when(client.query(any(LLMQueryRequest.class))).thenReturn(LLMResponse.withoutCitations(response));
-            assertThrows(LLMClientException.class, () -> service.generate(project, null, 1, "中文"));
+            assertThrows(LLMClientException.class, () -> service.generate(project, null, 1, "中文", List.of("美国")));
         }
     }
 
+    /** 数量越界、母题语言为空、没有地域（含全是空白）或地域超长，都在调用模型前拒绝。 */
     @Test
     void shouldRejectInvalidInputBeforeCallingModel() {
-        assertThrows(IllegalArgumentException.class, () -> service.generate(project, null, 101, "中文"));
-        assertThrows(IllegalArgumentException.class, () -> service.generate(project, null, 1, " "));
+        assertThrows(IllegalArgumentException.class, () -> service.generate(project, null, 101, "中文", List.of("美国")));
+        assertThrows(IllegalArgumentException.class, () -> service.generate(project, null, 1, " ", List.of("美国")));
+        assertThrows(IllegalArgumentException.class, () -> service.generate(project, null, 1, "中文", null));
+        assertThrows(IllegalArgumentException.class, () -> service.generate(project, null, 1, "中文", List.of(" ")));
+        assertThrows(IllegalArgumentException.class, () -> service.generate(project, null, 1, "中文", List.of("地".repeat(51))));
         verifyNoInteractions(client);
     }
 }

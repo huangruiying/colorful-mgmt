@@ -72,28 +72,32 @@ class ProjectInfoImportExportServiceTest {
         assertEquals(2, target.jdbc.queryForObject("SELECT COUNT(*) FROM geo_project_info", Integer.class));
     }
 
-    /** 问题地域随导出导入保留。 */
+    /** 问题地域与报告语言随导出导入保留。 */
     @Test
-    void shouldCarryQuestionRegionThroughExportAndImport() throws Exception {
+    void shouldCarryQuestionRegionAndReportLanguageThroughExportAndImport() throws Exception {
         Fixture source = createFixture();
         seedProject(source, true);
         source.jdbc.update("UPDATE geo_diagnosis_plan_question SET region = '美国' WHERE id = 30");
+        source.jdbc.update("UPDATE geo_diagnosis_task_report SET report_language = '英语'");
         Fixture target = createFixture();
         target.business.importProject(source.business.exportProject(10));
         assertEquals("美国", target.jdbc.queryForObject("SELECT region FROM geo_diagnosis_plan_question", String.class));
+        assertEquals("英语", target.jdbc.queryForObject("SELECT report_language FROM geo_diagnosis_task_report", String.class));
     }
 
-    /** 地域功能之前导出的文件没有问题地域列，仍可导入，地域为空即不分地域。 */
+    /** 地域和报告语言加入之前导出的文件没有这两列，仍可导入：地域为空即不分地域，报告语言由表默认值记为中文。 */
     @Test
-    void shouldImportEarlierFileWithoutQuestionRegion() throws Exception {
+    void shouldImportEarlierFileWithoutRegionOrReportLanguage() throws Exception {
         Fixture source = createFixture();
         seedProject(source, true);
         ObjectNode archive = files.parseArchive(source.business.exportProject(10));
         archive.get("questions").forEach(question -> ((ObjectNode) question).remove("region"));
+        archive.get("reports").forEach(report -> ((ObjectNode) report).remove("report_language"));
         Fixture target = createFixture();
         target.business.importProject(JsonUtils.toPrettyBytes(archive));
         assertEquals(1, target.jdbc.queryForObject("SELECT COUNT(*) FROM geo_diagnosis_plan_question", Integer.class));
         assertNull(target.jdbc.queryForObject("SELECT region FROM geo_diagnosis_plan_question", String.class));
+        assertEquals("中文", target.jdbc.queryForObject("SELECT report_language FROM geo_diagnosis_task_report", String.class));
     }
 
     /** 已从当前方案删除的问题只恢复追溯标识，不作为新的当前问题出现。 */

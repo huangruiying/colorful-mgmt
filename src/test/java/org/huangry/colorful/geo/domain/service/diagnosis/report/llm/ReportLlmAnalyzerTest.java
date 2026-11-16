@@ -29,8 +29,8 @@ class ReportLlmAnalyzerTest {
     /** 没有维度、没有问题时不调用模型。 */
     @Test
     void shouldSkipModelWhenNothingToProcess() {
-        assertEquals(Map.of(), llmAnalyzer.normalizeDimensions(List.of(), channel, 9L));
-        assertEquals("NO_ISSUES", llmAnalyzer.generateAdvice(new JSONArray(), new JSONObject(), channel, 9L).getString("status"));
+        assertEquals(Map.of(), llmAnalyzer.normalizeDimensions(List.of(), channel, 9L, "中文"));
+        assertEquals("NO_ISSUES", llmAnalyzer.generateAdvice(new JSONArray(), new JSONObject(), channel, 9L, "中文").getString("status"));
         verifyNoInteractions(llmClient);
     }
 
@@ -39,18 +39,19 @@ class ReportLlmAnalyzerTest {
     void shouldKeepNamesAndMarkAdviceFailedWhenModelFails() {
         when(llmClient.query(any(), same(channel))).thenThrow(new LLMClientException("调用失败"));
 
-        assertEquals(Map.of("价格偏高", "价格偏高"), llmAnalyzer.normalizeDimensions(answersWithDimension(), channel, 9L));
-        JSONObject advice = llmAnalyzer.generateAdvice(JSON.parseArray("[{\"id\":\"P1\"}]"), new JSONObject().fluentPut("name", "团油"), channel, 9L);
+        assertEquals(Map.of("价格偏高", "价格偏高"), llmAnalyzer.normalizeDimensions(answersWithDimension(), channel, 9L, "中文"));
+        JSONObject advice = llmAnalyzer.generateAdvice(JSON.parseArray("[{\"id\":\"P1\"}]"), new JSONObject().fluentPut("name", "团油"), channel, 9L, "中文");
         assertEquals("FAILED", advice.getString("status"));
         assertEquals("优化建议生成失败，可先查看规则发现的问题", advice.getString("errorMessage"));
     }
 
-    /** 模型返回归一结果时按映射合并同义维度。 */
+    /** 模型返回归一结果时按映射合并同义维度；归一名称按报告语言书写，调用不联网。 */
     @Test
     void shouldNormalizeDimensionsFromModelOutput() {
-        when(llmClient.query(any(), same(channel))).thenReturn(new LLMResponse("{\"价格偏高\":\"价格\"}", List.of()));
+        when(llmClient.query(any(), same(channel))).thenReturn(new LLMResponse("{\"价格偏高\":\"Price\"}", List.of()));
 
-        assertEquals(Map.of("价格偏高", "价格"), llmAnalyzer.normalizeDimensions(answersWithDimension(), channel, 9L));
+        assertEquals(Map.of("价格偏高", "Price"), llmAnalyzer.normalizeDimensions(answersWithDimension(), channel, 9L, "英语"));
+        verify(llmClient).query(argThat(request -> request.prompt().contains("用英语书写") && !request.enableWebSearch()), same(channel));
     }
 
     /** 每个有机会的地域调用一次模型；某个地域失败只影响该地域，没有机会的地域不调用模型。 */
@@ -64,7 +65,7 @@ class ReportLlmAnalyzerTest {
                             {"name":"德国","portrayal":{},"opportunities":[{"id":"R2-O1"}]},
                             {"name":"日本","portrayal":{},"opportunities":[]}]}""");
 
-        llmAnalyzer.generateRegionStrategies(regionReport, new JSONObject().fluentPut("name", "Olight"), channel, 9L);
+        llmAnalyzer.generateRegionStrategies(regionReport, new JSONObject().fluentPut("name", "Olight"), channel, 9L, "中文");
 
         JSONArray regions = regionReport.getJSONArray("regions");
         JSONObject usa = regions.getJSONObject(0).getJSONObject("strategy");

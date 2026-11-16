@@ -47,17 +47,19 @@ class RegionStrategyPromptTest {
                  "mentionPlays":[{"title":"x","steps":["a"],"evidenceStatus":"INFERRED","opportunityIds":["R9-O1"]}]}""", opportunities));
     }
 
-    /** 提示词带上地域、机会编号和证据状态规则，模型才能引用并标注推测。 */
+    /** 提示词带上地域、机会编号、证据状态规则和报告语言，模型才能引用、标注推测并用报告语言书写。 */
     @Test
     void shouldIncludeRegionDataInPrompt() {
         JSONObject region = new JSONObject().fluentPut("name", "德国").fluentPut("sample", new JSONObject()).fluentPut("portrayal", new JSONObject())
                 .fluentPut("visibility", new JSONObject()).fluentPut("opportunities", opportunities);
 
-        String prompt = regionStrategyPrompt.buildPrompt(new JSONObject().fluentPut("name", "Olight").fluentPut("competitors", JSON.parseArray("[\"Fenix\"]")), region);
+        String prompt = regionStrategyPrompt.buildPrompt(new JSONObject().fluentPut("name", "Olight").fluentPut("competitors", JSON.parseArray("[\"Fenix\"]")),
+                region, "英语");
 
         assertTrue(prompt.contains("【地域】德国"));
         assertTrue(prompt.contains("\"id\":\"R1-O4\""));
         assertTrue(prompt.contains("对当地市场、平台、渠道的判断属于推测，用 INFERRED"));
+        assertTrue(prompt.contains("用英语书写"));
     }
 
     /** @return 每条策略的标题 */

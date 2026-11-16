@@ -39,12 +39,13 @@ class AdvicePromptTest {
         assertThrows(IllegalArgumentException.class, () -> advicePrompt.parseAdvice("无法回答", issues));
     }
 
-    /** 提示词带上全部问题编号，模型才能引用。 */
+    /** 提示词带上全部问题编号和报告语言，模型才能引用并用报告语言书写。 */
     @Test
     void shouldIncludeIssuesInPrompt() {
-        String prompt = advicePrompt.buildPrompt(new JSONObject().fluentPut("name", "团油"), issues);
+        String prompt = advicePrompt.buildPrompt(new JSONObject().fluentPut("name", "团油"), issues, "日语");
 
         assertTrue(prompt.contains("【目标】团油"));
         assertTrue(prompt.contains("\"id\":\"P2\""));
+        assertTrue(prompt.contains("findings 和 actions 的文字用日语书写"));
     }
 }

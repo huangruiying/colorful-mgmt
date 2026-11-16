@@ -17,6 +17,7 @@ import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisTaskReportS
 import org.huangry.colorful.geo.domain.service.llm.GeoLlmChannelService;
 import org.huangry.colorful.geo.infrastructure.client.llm.LLMClient;
 import org.huangry.colorful.geo.infrastructure.client.llm.LLMStrategyRouter;
+import org.huangry.colorful.geo.infrastructure.client.llm.model.LLMQueryRequest;
 import org.huangry.colorful.geo.infrastructure.client.llm.model.LLMResponse;
 import org.huangry.colorful.geo.infrastructure.common.exceptions.LLMClientException;
 import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisTaskResultAnalysisEntity;
@@ -25,6 +26,7 @@ import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisTas
 import org.huangry.colorful.geo.infrastructure.repository.entity.GeoLlmChannelEntity;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.sql.Connection;
@@ -63,6 +65,9 @@ class DiagnosisTaskReportWorkerTest {
         verify(service).updateAnalysisFailed(eq(2L), eq("判定模型不可用或未返回有效回答"), any());
         verify(service).finishReport(eq(9L), argThat(summary -> JSON.parseObject(summary).getJSONObject("advice").getString("status").equals("FAILED")));
         verify(service, never()).failReport(anyLong(), any());
+        // 逐条判定按报告语言组装提示词，判定只看回答原文，不联网
+        verify(analysisPrompt, times(2)).buildPrompt(any(), any(), any(), eq("英语"));
+        verify(llmClient, never()).query(argThat(LLMQueryRequest::enableWebSearch), any());
     }
 
     /** 汇总后调用一次模型写建议，只保留引用了已知问题编号的条目，随汇总一起冻结。 */
@@ -101,6 +106,10 @@ class DiagnosisTaskReportWorkerTest {
 
         verify(service).finishReport(eq(9L), argThat(saved -> JSON.parseObject(saved).getJSONObject("region").getJSONArray("regions")
                 .getJSONObject(0).getJSONObject("strategy").getString("status").equals("SUCCEEDED")));
+        // 优化建议与地域策略都按报告语言书写，且不联网
+        var requests = ArgumentCaptor.forClass(LLMQueryRequest.class);
+        verify(llmClient, times(2)).query(requests.capture(), same(channel));
+        assertTrue(requests.getAllValues().stream().allMatch(request -> request.prompt().contains("用英语书写") && !request.enableWebSearch()));
     }
 
     /** 全部判定失败时报告失败，不调用维度归一与汇总。 */
@@ -163,7 +172,7 @@ class DiagnosisTaskReportWorkerTest {
         result.setCitations("[]");
         result.setQuestionSnapshot("{\"text\":\"问题\",\"brandScope\":\"NON_BRAND\"}");
         when(service.getTaskResult(anyLong())).thenReturn(result);
-        when(analysisPrompt.buildPrompt(any(), any(), any())).thenReturn("判定提示词");
+        when(analysisPrompt.buildPrompt(any(), any(), any(), any())).thenReturn("判定提示词");
     }
 
     /** @return 只含一个规则问题 P1 的汇总，⑦ 没有地域 */
@@ -174,12 +183,13 @@ class DiagnosisTaskReportWorkerTest {
                 .fluentPut("region", new JSONObject().fluentPut("unassignedAnswers", 0).fluentPut("regions", new JSONArray()));
     }
 
-    /** @return 待生成的报告，尚未冻结判定渠道 */
+    /** @return 待生成的报告，报告语言为英语，尚未冻结判定渠道 */
     private GeoDiagnosisTaskReportEntity report() {
         var report = new GeoDiagnosisTaskReportEntity();
         report.setId(9L);
         report.setTaskId(30L);
         report.setStatus("RUNNING");
+        report.setReportLanguage("英语");
         return report;
     }
 

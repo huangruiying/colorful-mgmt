@@ -41,22 +41,43 @@ class GeoDiagnosisTaskReportServiceTest {
             saved.setId(9L);
             when(reports.selectById(9L)).thenReturn(saved);
 
-            assertSame(saved, service.createReport(30L));
+            assertSame(saved, service.createReport(30L, " 英语 "));
             var inserted = org.mockito.ArgumentCaptor.forClass(GeoDiagnosisTaskReportEntity.class);
             verify(reports).insert(inserted.capture());
             assertEquals(30L, inserted.getValue().getTaskId());
             assertEquals("PENDING", inserted.getValue().getStatus());
+            assertEquals("英语", inserted.getValue().getReportLanguage());
         }
+    }
+
+    /** 报告语言留空按中文；超过 50 字符在锁任务、写库之前拒绝。 */
+    @Test
+    void shouldDefaultReportLanguageToChineseAndRejectTooLong() {
+        when(tasks.selectOne(any())).thenReturn(task("SUCCEEDED"));
+        when(reports.insert(any(GeoDiagnosisTaskReportEntity.class))).thenAnswer(invocation -> {
+            invocation.<GeoDiagnosisTaskReportEntity>getArgument(0).setId(9L);
+            return 1;
+        });
+        when(analyses.insertPendingFromResults(9L, 30L, "SUCCEEDED", "length", "PENDING")).thenReturn(5);
+
+        service.createReport(30L, "  ");
+        var inserted = org.mockito.ArgumentCaptor.forClass(GeoDiagnosisTaskReportEntity.class);
+        verify(reports).insert(inserted.capture());
+        assertEquals("中文", inserted.getValue().getReportLanguage());
+
+        reset(tasks, reports);
+        assertThrows(IllegalArgumentException.class, () -> service.createReport(30L, "语".repeat(51)));
+        verifyNoInteractions(tasks, reports);
     }
 
     /** 不存在、执行中或全部失败的任务不能生成报告，不创建任何记录。 */
     @Test
     void shouldRejectMissingUnfinishedOrAllFailedTask() {
         when(tasks.selectOne(any())).thenReturn(null);
-        assertThrows(NoSuchElementException.class, () -> service.createReport(30L));
+        assertThrows(NoSuchElementException.class, () -> service.createReport(30L, null));
         for (String status : List.of("PENDING", "RUNNING", "FAILED")) {
             when(tasks.selectOne(any())).thenReturn(task(status));
-            assertThrows(IllegalArgumentException.class, () -> service.createReport(30L));
+            assertThrows(IllegalArgumentException.class, () -> service.createReport(30L, null));
         }
         verify(reports, never()).insert(any(GeoDiagnosisTaskReportEntity.class));
     }
@@ -67,7 +88,7 @@ class GeoDiagnosisTaskReportServiceTest {
         when(tasks.selectOne(any())).thenReturn(task("SUCCEEDED"));
         when(reports.exists(any())).thenReturn(true);
 
-        assertThrows(IllegalArgumentException.class, () -> service.createReport(30L));
+        assertThrows(IllegalArgumentException.class, () -> service.createReport(30L, null));
         verify(reports, never()).insert(any(GeoDiagnosisTaskReportEntity.class));
     }
 
@@ -81,7 +102,7 @@ class GeoDiagnosisTaskReportServiceTest {
         });
         when(analyses.insertPendingFromResults(anyLong(), anyLong(), any(), any(), any())).thenReturn(0);
 
-        assertThrows(IllegalArgumentException.class, () -> service.createReport(30L));
+        assertThrows(IllegalArgumentException.class, () -> service.createReport(30L, null));
         verify(reports, never()).selectById(any());
     }
 
