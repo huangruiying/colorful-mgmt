@@ -101,12 +101,19 @@ infrastructure/client：外部协议、平台及浏览器适配
 - 何时用接管：代码能自动处理的（弹窗、协议勾选）写在平台适配里；要人做但能用管理页表单转交的（选验证方式、填短信码）用表单；只有必须直接在平台页面上操作的（拖滑块、点选图片）才用接管。不提前做没有真实需求的场景。
 - 人工验证的识别规则集中在 `HumanVerificationRule`，只收录实际遇到并核对过页面特征的验证；不识别验证码内容、不模拟拖动、不代替用户完成验证。
 
+## 诊断方案制题
+
+- 地域必选（2026-11-16 用户确认）：生成候选时先按「母题语言」生成一套母题，再按每个地域行（地域 + 可空语言）改写；生成母题时把本次地域告诉模型，母题要在这些地域都成立。母题只用于改写和审核对照，不保存。手动添加的题和旧方案的题仍可不分地域。
+- 问题面向哪些地域、用什么语言只看本次输入：项目档案的目标市场、目标语言只在页面上展示作参考，不发给制题模型，也不参与统计。
+
 ## 诊断报告页面与导出网页
 
-- 文件分工（2026-11-04 用户确认）：`static/admin/diagnosis-report-view.js`（`DiagnosisReportView`）渲染六个页签及证据、回答片段，页面与导出网页共用；`diagnosis-report-export.js`（`DiagnosisReportExport`）组装并下载导出网页；`diagnosis-reports.js` 是页面本身（列表、生成、详情、弹窗、补全）。页签的标识、标题、渲染函数与缺失提示只在 `DiagnosisReportView.tabs` 中定义；渲染函数不读全局状态，模型筛选与查看入口经第一个参数 `context` 传入。样式在导出时从当前页面内联。改报告页面时按下面两条写，导出自动跟上，不另改导出代码：
+- 文件分工（2026-11-04 用户确认）：`static/admin/diagnosis-report-view.js`（`DiagnosisReportView`）渲染各页签及证据、回答片段，页面与导出网页共用；`diagnosis-report-export.js`（`DiagnosisReportExport`）组装并下载导出网页；`diagnosis-reports.js` 是页面本身（列表、生成、详情、弹窗、补全）。页签的标识、标题、渲染函数与缺失提示只在 `DiagnosisReportView.tabs` 中定义；渲染函数不读全局状态，模型筛选与查看入口经第一个参数 `context` 传入。样式在导出时从当前页面内联。改报告页面时按下面两条写，导出自动跟上，不另改导出代码：
   - 页签内容只用已读取的报告数据同步渲染。点开后才另调接口取得的内容不会进入导出网页，需要时在 `DiagnosisReportExport.downloadReport` 中单独读取（如回答原文）。
   - 「看回答」「看证据」这类查看入口一律经 `context.entries` 生成（或用已有的 `quoteLine`、`answerLine`、`adviceItem`）：页面上是按钮，导出时是打开随网页导出的弹窗的链接，对应回答与证据一并导出。不在渲染函数里直接创建按钮并绑定点击，导出时按钮会被去掉。
 - 筛选、排序、展开收起等其他交互不随导出带过去；需要在导出网页中可用时，在导出模块的 `exportPageScript` 中另加。
+- 页签内的子页签（如 ⑦ 的地域，2026-11-15）用带 `data-subtab-group`、`data-subtab`、`data-subtab-panel` 的链接，渲染函数不绑定事件：页面由 `diagnosis-reports.js` 委托点击后调用 `DiagnosisReportView.selectSubtab`，导出网页由 `exportPageScript` 切换。
+- 报告语言（2026-11-16 用户确认）：生成报告时选择，默认中文，存 `geo_diagnosis_task_report.report_language`。由模型写出的解析内容按报告语言书写：逐条判定的观点概括与维度名、维度归一、优化建议、⑦ 地域策略；新增需要模型书写的报告内容也把报告语言传进提示词。问题、回答、引用片段、来源和品牌名保持原文，不翻译。代码拼出的问题标题、指标名与页面固定文字保持中文，不做页面多语言。
 
 ## 已确认的大模型设计
 
@@ -119,7 +126,8 @@ infrastructure/client：外部协议、平台及浏览器适配
 - LLMProtocolType 只表示 OPENAI_CHAT_COMPLETIONS、OPENAI_RESPONSES 交互格式；本地模拟策略已删除（2026-10-29），测试用 Mockito 策略替身或 `.test` 脚本的本地 HTTP 模型替身。引用始终按响应的结构化字段解析，不根据搜索标志过滤，也不从正文 URL 或搜索召回来源猜测。搜索参数按供应商处理，不把普通兼容供应商自动标为支持联网。
 - 引用只来自接口结构化数据，不把正文链接当成实际引用，不虚构引用。
 - 不返回 url_citation 的厂商由子策略重写 `collectStrategyCitations`，把接口结构化返回的来源网址补为引用：DeepSeek 取 `web_search_call` 的 `open_page`（去掉 `ws_call_id` 标识），千问、智谱取 `web_search_call.action.sources` 中 `type=url` 的网址（共用 `LLMWebSearchResultParser.collectWebSearchSources`）；文心（千帆智能搜索 Chat）取响应顶层 `references` 中 `type=web` 的网址与标题，正文 `^[n]^` 角标不解析。Chat 与 Responses 父类各提供同名默认空实现的补充入口。标题、摘要、位置留空且不抓取补全；检索词不作为引用；文本注解已有同一网址时保留注解资料。标准 url_citation（豆包、OpenAI）留在父类统一解析，不下沉到子策略。
-- `LLMQueryRequest` 仅含 `prompt`、`channelCode`、`modelName`，每次独立调用，无角色枚举、消息列表或历史上下文。重复执行通过多次独立调用完成。
+- `LLMQueryRequest` 仅含 `prompt`、`channelCode`、`modelName`、`enableWebSearch`，每次独立调用，无角色枚举、消息列表或历史上下文。重复执行通过多次独立调用完成。
+- 是否联网由调用方声明，不按渠道或提示词识别（2026-11-16 用户确认）：`enableWebSearch` 默认 false，只有诊断执行（`DiagnosisTaskWorker`）和测试接口用 `LLMQueryRequest.withWebSearch` 打开；制题、改写、报告判定、维度归一、优化建议、地域策略、内容优化等内部任务一律不联网，新增模型调用不写就不搜。Responses 父类判断开关，打开才调用子类的 `addWebSearchParams` 挂载厂商搜索参数；子类只把“要联网”翻译成自己的参数，不判断用途。千帆智能搜索（接口本身即搜索）、`gpt-5-search-api` 等搜索专用模型不受开关控制，内部任务不要选用。
 - 密钥仅供服务端使用，响应只返回 `keyConfigured`；编辑空密钥保留原值，输入新值才替换。
 
 ## 修改后的检查
