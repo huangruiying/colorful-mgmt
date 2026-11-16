@@ -137,6 +137,19 @@ class GeoDiagnosisTaskServiceTest {
         assertEquals("项目背景", JSON.parseObject(task.getPlanSnapshot()).getJSONObject("project").getString("coreFeatures"));
     }
 
+    /** 问题地域随任务冻结：报告按快照里的地域分组，未设地域的问题保留空值，表示不分地域。 */
+    @Test
+    void shouldFreezeQuestionRegionIntoSnapshots() {
+        configure(2, 1, 1);
+        planService.listQuestions(1L).get(0).setRegion("德国");
+        var task = service.createTask(new CreateDiagnosisTaskRequest(1L, "region-test"));
+        var frozenQuestions = JSON.parseObject(task.getPlanSnapshot()).getJSONArray("questions");
+        assertEquals("德国", frozenQuestions.getJSONObject(0).getString("region"));
+        assertTrue(frozenQuestions.getJSONObject(1).containsKey("region"));
+        assertNull(frozenQuestions.getJSONObject(1).getString("region"));
+        assertEquals("德国", JSON.parseObject(inserted.get(0).getQuestionSnapshot()).getString("region"));
+    }
+
     /** 最大诊断结果规模保持固定批次，不退化成四万次单条插入。 */
     @Test
     void shouldInitializeMaximumScaleInBoundedBatches() {

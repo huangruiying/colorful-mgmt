@@ -5,6 +5,7 @@ import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
 import org.huangry.colorful.geo.domain.service.diagnosis.report.llm.AdvicePrompt;
 import org.huangry.colorful.geo.domain.service.diagnosis.report.llm.DimensionPrompt;
+import org.huangry.colorful.geo.domain.service.diagnosis.report.llm.RegionStrategyPrompt;
 import org.huangry.colorful.geo.domain.service.diagnosis.report.llm.ReportLlmAnalyzer;
 import org.huangry.colorful.geo.domain.service.diagnosis.report.analyze.ResultAnalyzer;
 import org.huangry.colorful.geo.domain.service.diagnosis.report.analyze.ResultJudgePrompt;
@@ -84,6 +85,24 @@ class DiagnosisTaskReportWorkerTest {
         }));
     }
 
+    /** 汇总后每个有机会的地域调用一次模型写提升策略，随汇总一起冻结。 */
+    @Test
+    void shouldFreezeRegionStrategiesWithSummary() {
+        when(service.findNextPendingAnalysis(9L)).thenReturn(null);
+        when(service.loadAnswers(9L)).thenReturn(List.of(new ReportAnswer(succeeded(), new GeoDiagnosisTaskResultEntity())));
+        JSONObject summary = summaryWithOneIssue();
+        summary.getJSONObject("region").getJSONArray("regions").add(JSON.parseObject(
+                "{\"name\":\"美国\",\"portrayal\":{},\"opportunities\":[{\"id\":\"R1-O1\",\"title\":\"竞品占位\"}]}"));
+        when(summarizer.buildSummary(any(), any(), any(), any(), any())).thenReturn(summary);
+        when(llmClient.query(any(), same(channel))).thenReturn(new LLMResponse("{\"findings\":[],\"actions\":[]}", List.of()),
+                new LLMResponse("{\"mentionPlays\":[{\"title\":\"进入推荐清单\",\"steps\":[\"发测评\"],\"evidenceStatus\":\"INFERRED\",\"opportunityIds\":[\"R1-O1\"]}]}", List.of()));
+
+        ReflectionTestUtils.invokeMethod(worker, "generate", report());
+
+        verify(service).finishReport(eq(9L), argThat(saved -> JSON.parseObject(saved).getJSONObject("region").getJSONArray("regions")
+                .getJSONObject(0).getJSONObject("strategy").getString("status").equals("SUCCEEDED")));
+    }
+
     /** 全部判定失败时报告失败，不调用维度归一与汇总。 */
     @Test
     void shouldFailReportWhenNoAnswerJudged() {
@@ -128,6 +147,7 @@ class DiagnosisTaskReportWorkerTest {
         ReflectionTestUtils.setField(llmAnalyzer, "llmClient", llmClient);
         ReflectionTestUtils.setField(llmAnalyzer, "dimensionPrompt", new DimensionPrompt());
         ReflectionTestUtils.setField(llmAnalyzer, "advicePrompt", new AdvicePrompt());
+        ReflectionTestUtils.setField(llmAnalyzer, "regionStrategyPrompt", new RegionStrategyPrompt());
         ReflectionTestUtils.setField(worker, "reportLlmAnalyzer", llmAnalyzer);
         ReflectionTestUtils.setField(worker, "diagnosisTaskSnapshots", snapshots);
         ReflectionTestUtils.setField(worker, "router", router);
@@ -146,11 +166,12 @@ class DiagnosisTaskReportWorkerTest {
         when(analysisPrompt.buildPrompt(any(), any(), any())).thenReturn("判定提示词");
     }
 
-    /** @return 只含一个规则问题 P1 的汇总 */
+    /** @return 只含一个规则问题 P1 的汇总，⑦ 没有地域 */
     private JSONObject summaryWithOneIssue() {
         JSONArray issues = new JSONArray();
         issues.add(new JSONObject().fluentPut("id", "P1").fluentPut("title", "千问很少提到目标"));
-        return new JSONObject().fluentPut("sample", new JSONObject()).fluentPut("issues", issues);
+        return new JSONObject().fluentPut("sample", new JSONObject()).fluentPut("issues", issues)
+                .fluentPut("region", new JSONObject().fluentPut("unassignedAnswers", 0).fluentPut("regions", new JSONArray()));
     }
 
     /** @return 待生成的报告，尚未冻结判定渠道 */

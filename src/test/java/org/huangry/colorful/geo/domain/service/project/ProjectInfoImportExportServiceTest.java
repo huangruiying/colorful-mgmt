@@ -72,6 +72,30 @@ class ProjectInfoImportExportServiceTest {
         assertEquals(2, target.jdbc.queryForObject("SELECT COUNT(*) FROM geo_project_info", Integer.class));
     }
 
+    /** 问题地域随导出导入保留。 */
+    @Test
+    void shouldCarryQuestionRegionThroughExportAndImport() throws Exception {
+        Fixture source = createFixture();
+        seedProject(source, true);
+        source.jdbc.update("UPDATE geo_diagnosis_plan_question SET region = '美国' WHERE id = 30");
+        Fixture target = createFixture();
+        target.business.importProject(source.business.exportProject(10));
+        assertEquals("美国", target.jdbc.queryForObject("SELECT region FROM geo_diagnosis_plan_question", String.class));
+    }
+
+    /** 地域功能之前导出的文件没有问题地域列，仍可导入，地域为空即不分地域。 */
+    @Test
+    void shouldImportEarlierFileWithoutQuestionRegion() throws Exception {
+        Fixture source = createFixture();
+        seedProject(source, true);
+        ObjectNode archive = files.parseArchive(source.business.exportProject(10));
+        archive.get("questions").forEach(question -> ((ObjectNode) question).remove("region"));
+        Fixture target = createFixture();
+        target.business.importProject(JsonUtils.toPrettyBytes(archive));
+        assertEquals(1, target.jdbc.queryForObject("SELECT COUNT(*) FROM geo_diagnosis_plan_question", Integer.class));
+        assertNull(target.jdbc.queryForObject("SELECT region FROM geo_diagnosis_plan_question", String.class));
+    }
+
     /** 已从当前方案删除的问题只恢复追溯标识，不作为新的当前问题出现。 */
     @Test
     void shouldReserveFreshHistoricalQuestionIdWithoutChangingCurrentPlan() throws Exception {

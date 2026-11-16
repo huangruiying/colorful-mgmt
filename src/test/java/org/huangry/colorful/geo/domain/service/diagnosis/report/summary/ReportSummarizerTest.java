@@ -252,11 +252,12 @@ class ReportSummarizerTest {
         return new ReportAnswer(analysis, result);
     }
 
-    /** @return 按 Spring 注入关系手工组装的汇总器：入口类加各页签的汇总类，均使用真实实现 */
-    private static ReportSummarizer summarizer() {
+    /** @return 按 Spring 注入关系手工组装的汇总器：入口类加各页签的汇总类，均使用真实实现；⑦ 地域报告的测试也用它 */
+    static ReportSummarizer summarizer() {
         var ruleAnalyzer = new ResultRuleAnalyzer();
         var ranking = new ReportDimensionRanking();
         ReflectionTestUtils.setField(ranking, "resultRuleAnalyzer", ruleAnalyzer);
+        var overview = new ReportOverviewSummarizer();
         var visibility = new ReportVisibilitySummarizer();
         ReflectionTestUtils.setField(visibility, "reportDimensionRanking", ranking);
         var brand = new ReportBrandSummarizer();
@@ -266,11 +267,18 @@ class ReportSummarizerTest {
         ReflectionTestUtils.setField(competitor, "reportDimensionRanking", ranking);
         var source = new ReportSourceSummarizer();
         ReflectionTestUtils.setField(source, "reportDimensionRanking", ranking);
+        var region = new ReportRegionSummarizer();
+        ReflectionTestUtils.setField(region, "resultRuleAnalyzer", ruleAnalyzer);
+        ReflectionTestUtils.setField(region, "reportDimensionRanking", ranking);
+        ReflectionTestUtils.setField(region, "reportOverviewSummarizer", overview);
+        ReflectionTestUtils.setField(region, "reportCompetitorSummarizer", competitor);
+        ReflectionTestUtils.setField(region, "reportBrandSummarizer", brand);
 
         var summarizer = new ReportSummarizer();
         ReflectionTestUtils.setField(summarizer, "resultRuleAnalyzer", ruleAnalyzer);
         ReflectionTestUtils.setField(summarizer, "diagnosisTaskSnapshots", new DiagnosisTaskSnapshots());
-        ReflectionTestUtils.setField(summarizer, "reportOverviewSummarizer", new ReportOverviewSummarizer());
+        ReflectionTestUtils.setField(summarizer, "reportOverviewSummarizer", overview);
+        ReflectionTestUtils.setField(summarizer, "reportRegionSummarizer", region);
         ReflectionTestUtils.setField(summarizer, "reportVisibilitySummarizer", visibility);
         ReflectionTestUtils.setField(summarizer, "reportBrandSummarizer", brand);
         ReflectionTestUtils.setField(summarizer, "reportCompetitorSummarizer", competitor);

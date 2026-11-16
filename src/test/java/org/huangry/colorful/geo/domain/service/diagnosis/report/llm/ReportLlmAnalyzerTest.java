@@ -20,7 +20,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
-/** 报告中需要模型的两步：没有输入时不调用；调用失败时维度保持原名、建议记为失败，不抛出。 */
+/** 报告中需要模型的步骤：没有输入时不调用；调用失败时维度保持原名、建议或该地域策略记为失败，不抛出。 */
 class ReportLlmAnalyzerTest {
     private final LLMClient llmClient = mock(LLMClient.class);
     private final GeoLlmChannelEntity channel = new GeoLlmChannelEntity();
@@ -53,6 +53,28 @@ class ReportLlmAnalyzerTest {
         assertEquals(Map.of("价格偏高", "价格"), llmAnalyzer.normalizeDimensions(answersWithDimension(), channel, 9L));
     }
 
+    /** 每个有机会的地域调用一次模型；某个地域失败只影响该地域，没有机会的地域不调用模型。 */
+    @Test
+    void shouldGenerateStrategyPerRegionAndIsolateFailures() {
+        when(llmClient.query(any(), same(channel)))
+                .thenReturn(new LLMResponse("{\"mentionPlays\":[{\"title\":\"进入推荐清单\",\"steps\":[\"发测评\"],\"evidenceStatus\":\"INFERRED\",\"opportunityIds\":[\"R1-O1\"]}]}", List.of()))
+                .thenThrow(new LLMClientException("调用失败"));
+        JSONObject regionReport = JSON.parseObject("""
+                {"regions":[{"name":"美国","portrayal":{},"opportunities":[{"id":"R1-O1"}]},
+                            {"name":"德国","portrayal":{},"opportunities":[{"id":"R2-O1"}]},
+                            {"name":"日本","portrayal":{},"opportunities":[]}]}""");
+
+        llmAnalyzer.generateRegionStrategies(regionReport, new JSONObject().fluentPut("name", "Olight"), channel, 9L);
+
+        JSONArray regions = regionReport.getJSONArray("regions");
+        JSONObject usa = regions.getJSONObject(0).getJSONObject("strategy");
+        assertEquals("SUCCEEDED", usa.getString("status"));
+        assertEquals("进入推荐清单", usa.getJSONArray("mentionPlays").getJSONObject(0).getString("title"));
+        assertEquals("FAILED", regions.getJSONObject(1).getJSONObject("strategy").getString("status"));
+        assertEquals("NO_OPPORTUNITIES", regions.getJSONObject(2).getJSONObject("strategy").getString("status"));
+        verify(llmClient, times(2)).query(any(), same(channel));
+    }
+
     /** @return 一条判定成功、带“价格偏高”保留意见的回答 */
     private List<ReportAnswer> answersWithDimension() {
         var analysis = new GeoDiagnosisTaskResultAnalysisEntity();
@@ -67,6 +89,7 @@ class ReportLlmAnalyzerTest {
         ReflectionTestUtils.setField(analyzer, "llmClient", llmClient);
         ReflectionTestUtils.setField(analyzer, "dimensionPrompt", new DimensionPrompt());
         ReflectionTestUtils.setField(analyzer, "advicePrompt", new AdvicePrompt());
+        ReflectionTestUtils.setField(analyzer, "regionStrategyPrompt", new RegionStrategyPrompt());
         return analyzer;
     }
 }
