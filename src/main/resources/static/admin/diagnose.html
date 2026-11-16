@@ -7,7 +7,7 @@
     <title>诊断方案 · GEO 管理平台</title>
     <link rel="stylesheet" href="./styles.css?v=20261021-login1">
     <link rel="stylesheet" href="./styles/components.css?v=20261031-takeover1">
-    <link rel="stylesheet" href="./diagnosis-plans.css?v=20261017-layout4">
+    <link rel="stylesheet" href="./diagnosis-plans.css?v=20261115-region1">
     <script src="./shared/navigation.js?v=20261026-import-export1" defer></script>
     <script src="./shared/browser-takeover.js?v=20261101-replay1" defer></script>
 </head>
@@ -49,8 +49,15 @@
                         <div class="plan-grid">
                             <label>生成问题的模型<select id="generation-channel" aria-label="生成问题的模型"><option value="">按数据库优先级选择</option></select></label>
                             <label>生成数量<input id="generation-count" type="number" min="1" max="100" value="12"></label>
-                            <label>问题语言<input id="generation-language" maxlength="100" value="中文"></label>
+                            <label>母题语言<input id="generation-language" maxlength="100" value="中文"></label>
                         </div>
+                        <div class="locale-panel">
+                            <div class="section-heading"><h4>按地域本地化</h4><button type="button" class="refresh-button" id="add-locale">添加地域</button></div>
+                            <p class="help" id="project-market">项目目标市场：请先选择项目</p>
+                            <div id="locale-rows" class="locale-rows"></div>
+                            <p class="help">至少添加一个地域。先按母题语言生成一套母题（母题针对这里填的地域），再按每行的地域和语言改写成候选，候选数 = 生成数量 × 行数；语言留空时用该地域的常用语言。同一地域可以加多行测不同语言。项目的目标市场、目标语言只供参考，不发给模型。</p>
+                        </div>
+                        <datalist id="region-options"></datalist>
                         <div class="inline-controls"><button type="button" class="refresh-button" id="generate">生成候选问题</button><span id="generation-status" class="muted" role="status">结合用户意图、使用场景和侧面需求生成。</span></div>
                         <div id="candidates-panel" hidden><div class="section-heading"><h3>待确认候选</h3><button type="button" class="refresh-button" id="add-candidates">加入勾选候选</button></div><div id="candidate-list"></div><p class="help">已有问题保留，重复内容不重复加入。</p></div>
                     </section>
@@ -71,5 +78,5 @@
 </body>
 <script src="./shared/http.js?v=20261029-failure1" defer></script>
 <script src="./shared/pagination.js?v=20261017-lifecycle1" defer></script>
-<script src="./diagnosis-plans.js?v=20261106-limit500" defer></script>
+<script src="./diagnosis-plans.js?v=20261116-locale2" defer></script>
 </html>

@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="./styles.css?v=20261021-login1">
     <link rel="stylesheet" href="./styles/components.css?v=20261031-takeover1">
     <link rel="stylesheet" href="./styles/diagnosis.css?v=20261017-layout4">
-    <link rel="stylesheet" href="./diagnosis-reports.css?v=20261104-cleanup1">
+    <link rel="stylesheet" href="./diagnosis-reports.css?v=20261115-region1">
     <link rel="stylesheet" href="./markdown-view.css?v=20261017-md2">
     <script src="./shared/navigation.js?v=20261026-import-export1" defer></script>
     <script src="./shared/browser-takeover.js?v=20261101-replay1" defer></script>
@@ -52,6 +52,9 @@
         <div id="create-error" class="notice error" role="alert" hidden></div>
         <label class="task-field">诊断任务<select id="create-task" required><option value="">正在加载…</option></select></label>
         <p class="help">只列出已结束且有成功回答的任务。报告分析该任务全部成功且未被截断的回答。</p>
+        <label class="task-field">报告语言<input id="create-language" maxlength="50" value="中文" placeholder="中文" list="report-language-options"></label>
+        <datalist id="report-language-options"><option value="中文"></option><option value="英语"></option><option value="日语"></option><option value="德语"></option><option value="法语"></option></datalist>
+        <p class="help">观点概括、维度名、优化建议和地域策略用报告语言书写；问题、回答和引用保持原文，页面文字仍为中文。留空按中文。</p>
         <div class="task-actions"><button type="button" class="refresh-button" id="cancel-create">取消</button><button type="submit" class="primary-button" id="submit-create">生成</button></div>
     </form>
 </dialog>
@@ -81,8 +84,8 @@
 <script src="./shared/dialog.js?v=20261017-lifecycle1" defer></script>
 <script src="./shared/format.js?v=20261017-shared3" defer></script>
 <script src="./shared/html-export.js?v=20261104-export-dialog1" defer></script>
-<script src="./diagnosis-report-view.js?v=20261104-split1" defer></script>
-<script src="./diagnosis-report-export.js?v=20261104-split1" defer></script>
-<script src="./diagnosis-reports.js?v=20261104-split2" defer></script>
+<script src="./diagnosis-report-view.js?v=20261116-language1" defer></script>
+<script src="./diagnosis-report-export.js?v=20261115-region1" defer></script>
+<script src="./diagnosis-reports.js?v=20261116-language1" defer></script>
 </body>
 </html>

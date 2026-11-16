@@ -1,6 +1,6 @@
 "use strict";
 /**
- * 诊断报告页：报告列表、生成报告、报告详情（六个页签、按模型筛选、补全）、证据与回答弹窗，以及导出网页按钮。
+ * 诊断报告页：报告列表、生成报告、报告详情（各页签及 ⑦ 的地域子页签、按模型筛选、补全）、证据与回答弹窗，以及导出网页按钮。
  * <p>页签内容由 DiagnosisReportView（diagnosis-report-view.js）渲染，导出网页由 DiagnosisReportExport（diagnosis-report-export.js）组装；
  * 本文件负责页面状态、接口读取、弹窗与轮询的生命周期。</p>
  */
@@ -17,6 +17,8 @@
     const supplementingIds = new Set();
     // 按模型筛选：空字符串为全部模型；只作用于按模型分行的表格，排行与清单是全部模型合计
     let modelFilter = "";
+    // ⑦ 当前选中的地域子页签，切换模型筛选重绘后保持；打开另一份报告时清空
+    let activeSubtab = null;
     const request = window.AdminHttp.requestJson;
     const answerRequests = window.AdminAsync.createRequestScope();
     const createRequests = window.AdminAsync.createRequestScope();
@@ -113,7 +115,7 @@
     });
 
     /**
-     * 提交生成报告：成功后关闭窗口、刷新列表并打开新报告；提交中不能重复提交，失败时在窗口内提示。
+     * 提交生成报告，带上报告语言（留空由服务端按中文处理）：成功后关闭窗口、刷新列表并打开新报告；提交中不能重复提交，失败时在窗口内提示。
      * @param {SubmitEvent} event 生成窗口的表单提交事件
      */
     async function submitCreate(event) {
@@ -121,7 +123,8 @@
         if (creating || !byId("create-task").value) return;
         creating = true; byId("submit-create").disabled = true; show("create-error", "");
         try {
-            const created = await request("/diagnosis-reports/diagnosis-tasks/" + Number(byId("create-task").value), {method:"POST"});
+            const created = await request("/diagnosis-reports/diagnosis-tasks/" + Number(byId("create-task").value),
+                {method:"POST", body:JSON.stringify({reportLanguage:byId("create-language").value.trim()})});
             createDialog.close();
             show("report-success", "已开始生成报告 #" + created.id + "，共 " + created.progress.total + " 条有效回答待判定。");
             page = 0; await loadList();
@@ -136,7 +139,7 @@
      */
     async function openDetail(id) {
         detailPoller.stop(); answerRequests.cancel(); answerDialog.close();
-        reportId = id; report = null; activeTab = "overview"; modelFilter = ""; show("detail-error", "");
+        reportId = id; report = null; activeTab = "overview"; modelFilter = ""; activeSubtab = null; show("detail-error", "");
         byId("supplement-report").hidden = true;
         byId("export-report-html").hidden = true;
         byId("report-detail-title").textContent = "诊断报告 #" + id;
@@ -202,6 +205,8 @@
         }
         if (modelFilter) panel.append(view.buildModelFilterNote(selectedModelName()));
         view.renderTab({modelFilter, entries:pageEntries}, panel, activeTab, report.summary);
+        // 重绘后回到之前选中的地域，渲染出来默认是第一个地域
+        if (activeSubtab != null) panel.querySelectorAll("[data-subtab-group]").forEach(group => view.selectSubtab(group, activeSubtab));
     }
 
     /** @return {string|undefined} 模型筛选下拉框当前选中的模型名称，用于筛选说明 */
@@ -307,6 +312,14 @@
     byId("supplement-report").addEventListener("click", supplementReport);
     byId("export-report-html").addEventListener("click", exportReportHtml);
     byId("report-model-filter").addEventListener("change", event => { modelFilter = event.target.value; renderPanel(); });
+    // ⑦ 地域子页签是渲染出的链接，点击只切换同组的内容，并记住所选地域
+    byId("report-panel").addEventListener("click", event => {
+        const subtab = event.target.closest("[data-subtab]");
+        if (!subtab) return;
+        event.preventDefault();
+        activeSubtab = subtab.dataset.subtab;
+        view.selectSubtab(subtab.closest("[data-subtab-group]"), activeSubtab);
+    });
     window.AdminDialogs.bind([createDialog, detailDialog, evidenceDialog, answerDialog], {
         canClose:dialog => dialog !== createDialog || !creating,
         onClose:dialog => {

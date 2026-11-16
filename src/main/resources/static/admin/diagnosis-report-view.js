@@ -1,8 +1,9 @@
 "use strict";
 /**
- * 诊断报告六个页签的渲染：把报告汇总画成页面元素，系统页面与导出网页共用，保证两边内容一致。
+ * 诊断报告各页签的渲染：把报告汇总画成页面元素，系统页面与导出网页共用，保证两边内容一致。
  * <p>需要模型筛选或查看入口的函数，第一个参数都是 context：modelFilter 为当前筛选的模型 ID（空字符串为全部模型），
  * entries 决定「看证据」「看回答」入口的样子（页面上是按钮，导出网页里是打开弹窗的链接），见 renderTab。</p>
+ * <p>页签内的子页签（⑦ 的地域）是带 data-subtab 的链接，渲染时不绑定事件：页面用 selectSubtab 切换，导出网页由导出脚本切换。</p>
  * <p>只渲染、不发请求，也不读写页面上的其他元素。报告汇总由后端 domain/service/diagnosis/report 下的各生成类产出，
  * 各页签渲染函数注明了数据来源，字段含义以后端为准。</p>
  */
@@ -14,14 +15,18 @@
     const categoryLabels = {FILL_CONTENT_GAP:"补内容空缺", IMPROVE_CONTENT:"完善已有内容", ADD_EVIDENCE:"增加可信证据",
         CORRECT_INFORMATION:"纠正和统一信息", IMPROVE_ACCESS:"改善公开访问与检索", ADD_THIRD_PARTY:"补充第三方覆盖"};
     const evidenceStatusLabels = {ANSWER_STATED:"回答明确表达", INFERRED:"待验证推测"};
-    // 子 Tab 与诊断报告全景一致；part 为页签对应的汇总字段，缺失时显示补全提示
+    const portrayalLabels = {POSITIVE:"正向", NEUTRAL:"中性", NEGATIVE:"负向", INSUFFICIENT:"证据不足"};
+    const opportunityLabels = {COMPETITOR_OCCUPIED:"竞品占位", WHITE_SPACE:"空白题", MENTIONED_NOT_RECOMMENDED:"提到未推荐",
+        NOT_FIRST_CHOICE:"推荐未首推", USER_FOCUS:"用户在意", PERCEPTION_GAP:"口碑改善", UNCOVERED_PLATFORM:"渠道空白"};
+    // 子 Tab 与诊断报告全景一致；part 为页签对应的汇总字段，缺失时显示补全提示。⑦ 只有带地域的新报告才有，缺失时自行提示，不提供补全
     const tabs = Object.freeze([
         {key:"overview", title:"① 诊断概览", render:renderOverview},
         {key:"visibility", title:"② 可见度与推荐", render:renderVisibility},
         {key:"brand", title:"③ 品牌认知", part:"brand", render:renderBrand},
         {key:"competitor", title:"④ 竞品对比", part:"competitor", render:renderCompetitor},
         {key:"source", title:"⑤ 引用与内容", part:"source", render:renderSource},
-        {key:"advice", title:"⑥ 优化建议", part:"advice", render:renderAdvice}
+        {key:"advice", title:"⑥ 优化建议", part:"advice", render:renderAdvice},
+        {key:"region", title:"⑦ 地域报告", render:renderRegion}
     ].map(Object.freeze));
     const percent = value => value == null ? "—" : (value * 100).toFixed(1) + "%";
     const element = (tag, className, text) => {
@@ -48,12 +53,12 @@
 
     /**
      * @param {object} detail 报告详情
-     * @return {string} 报告所属方案、项目、诊断任务、判定模型与状态的一行说明，详情抬头与导出网页抬头共用
+     * @return {string} 报告所属方案、项目、诊断任务、判定模型、报告语言与状态的一行说明，详情抬头与导出网页抬头共用
      */
     function buildReportNote(detail) {
         const judge = detail.judgeChannel ? (detail.judgeChannel.channelName || "—") + " · " + (detail.judgeChannel.modelName || "—") : "未开始";
         return (detail.planName || "—") + " / " + (detail.projectName || "—") + " · 诊断任务 #" + detail.diagnosisTaskId
-            + " · 判定模型：" + judge + " · " + (statusLabels[detail.status] || detail.status);
+            + " · 判定模型：" + judge + " · 报告语言：" + (detail.reportLanguage || "中文") + " · " + (statusLabels[detail.status] || detail.status);
     }
 
     /**
@@ -249,6 +254,165 @@
     }
 
     /**
+     * ⑦ 地域报告：按问题的地域分子页签，每个地域给出宣传状态、大模型可见度、机会与提升策略。
+     * 数据：summary.region，由 ReportRegionSummarizer 生成；各地域的 strategy 由 ReportLlmAnalyzer 调用模型写入。
+     * 旧报告没有 region，问题都不分地域时 regions 为空，两种情况都只显示说明。
+     * @param {object} context 模型筛选与查看入口，见 renderTab
+     * @param {HTMLElement} panel 内容写入的容器
+     * @param {object} summary 报告汇总
+     */
+    function renderRegion(context, panel, summary) {
+        const report = summary.region;
+        if (!report) {
+            panel.append(element("div", "report-progress", "本报告没有地域数据。给方案的问题设置地域并重新发起诊断后，新生成的报告才有地域报告。"));
+            return;
+        }
+        if (!report.regions.length) {
+            panel.append(element("div", "report-progress", "本次诊断的问题都没有设置地域，暂无地域报告。"));
+            return;
+        }
+        if (report.unassignedAnswers) panel.append(element("p", "report-filter-note", report.unassignedAnswers + " 条回答的问题不分地域，未计入地域报告。"));
+        // 子页签是链接，默认显示第一个地域，切换由页面与导出网页各自的脚本完成
+        const group = element("div", "report-subtab-group"); group.dataset.subtabGroup = "region";
+        const bar = element("div", "report-subtabs"); bar.setAttribute("role", "tablist");
+        group.append(bar);
+        report.regions.forEach((region, index) => {
+            const tab = element("a", "report-subtab", region.name);
+            tab.href = "#"; tab.dataset.subtab = String(index);
+            tab.setAttribute("role", "tab"); tab.setAttribute("aria-selected", String(index === 0));
+            bar.append(tab);
+            const content = element("div"); content.dataset.subtabPanel = String(index); content.hidden = index > 0;
+            renderRegionContent(context, content, region);
+            group.append(content);
+        });
+        panel.append(group);
+    }
+
+    /**
+     * 一个地域的四部分内容：宣传状态、大模型可见度、机会、提升策略。
+     * @param {object} context 模型筛选与查看入口，见 renderTab
+     * @param {HTMLElement} container 内容写入的子页签容器
+     * @param {object} region 一个地域：name、sample、portrayal、visibility、opportunities、strategy
+     */
+    function renderRegionContent(context, container, region) {
+        const sample = region.sample;
+        container.append(element("p", "help report-region-sample", region.name + " · 有效回答 " + sample.validAnswers + " 条（判定成功 " + sample.judged
+            + " 条）· 题数 " + sample.questions + " · 模型数 " + sample.models));
+        container.append(section("1 宣传状态", "计入有态度的回答：点名题里有品牌情感的，以及其他题里提到目标且有推荐强度的；首推、强推算正面，明确不推荐算负面，其余算中性。"
+            + "正面 ≥ 50% 且负面 < 20% 为正向，负面 ≥ 30% 为负向，少于 3 条为证据不足。", renderPortrayal(context, region.portrayal)));
+        container.append(section("2 大模型可见度（非品牌问题）", "口径与 ① ④ 相同，范围只含该地域的问题。", renderRegionVisibility(context, region.visibility)));
+        const opportunities = element("div", "report-dimension-list");
+        if (!region.opportunities.length) opportunities.append(element("p", "report-empty", "暂无"));
+        for (const item of region.opportunities) {
+            opportunities.append(adviceItem(context, item.id + " " + item.title, (opportunityLabels[item.type] || item.type) + " · " + metricsText(item.metrics), null, [item.id]));
+        }
+        container.append(section("3 机会", "由程序按固定规则从该地域的回答中挑出，不经过模型；提升策略只能引用这里的编号。", opportunities));
+        container.append(section("4 提升策略", "由模型根据上面的数据和机会归纳；「待验证推测」表示对当地市场、平台、渠道的判断是推断，需要先核实。",
+            renderRegionStrategy(context, region.strategy)));
+    }
+
+    /**
+     * 地域的宣传状态：结论、正中负回答数，以及正面、负面证据。
+     * @param {object} context 模型筛选与查看入口，见 renderTab
+     * @param {object} portrayal 宣传状态：status、正中负计数与占比、各维度排行、factErrors、negativeSources
+     * @return {HTMLElement} 宣传状态内容
+     */
+    function renderPortrayal(context, portrayal) {
+        const box = element("div");
+        const line = element("p", "report-portrayal");
+        line.append(element("strong", "report-portrayal-badge report-portrayal-" + portrayal.status.toLowerCase(), portrayalLabels[portrayal.status] || portrayal.status),
+            element("span", null, "正面 " + portrayal.positive + " · 中性 " + portrayal.neutral + " · 负面 " + portrayal.negative
+                + " 条（正面占比 " + percent(portrayal.positiveRate) + "，负面占比 " + percent(portrayal.negativeRate) + "）"));
+        box.append(line);
+        const positives = element("div", "report-dimensions report-dimensions-2");
+        positives.append(dimensionList(context, "正面评价", "点名问题中对目标的正面评价", portrayal.positives),
+            dimensionList(context, "推荐理由", "推荐目标时给出的理由", portrayal.recommendReasons));
+        const negatives = element("div", "report-dimensions report-dimensions-2");
+        negatives.append(dimensionList(context, "负面评价", "点名问题中对目标的负面评价", portrayal.negatives),
+            dimensionList(context, "保留意见", "推荐目标时附带的缺点", portrayal.reservations));
+        box.append(element("h4", null, "正面证据"), positives, element("h4", null, "负面证据"), negatives);
+        box.append(element("h4", null, "错误信息"), quoteList(context, ofModel(context, portrayal.factErrors).map(error => ({
+            title:error.content, quote:error.quote, channelName:error.channelName, resultId:error.resultId}))));
+        box.append(element("h4", null, "负面回答引用的平台"), table(["平台", "引用次数", "链接示例"],
+            portrayal.negativeSources.map(row => [row.platform, row.count, row.links.map(link => link.title || link.url).join("；")]), 1));
+        return box;
+    }
+
+    /**
+     * 地域的大模型可见度：各模型核心指标，以及目标与预设竞品的对比。
+     * @param {object} context 模型筛选与查看入口，见 renderTab
+     * @param {object} visibility 可见度：models、brands
+     * @return {HTMLElement} 可见度内容
+     */
+    function renderRegionVisibility(context, visibility) {
+        const box = element("div");
+        box.append(table(["模型", "非品牌回答", "提及率", "推荐率", "首推率", "平均排名", "问题覆盖率", "稳定性"], ofModel(context, visibility.models).map(model => [
+            model.channelName + " · " + model.modelName, model.nonBrandAnswers, percent(model.mentionRate), percent(model.recommendRate),
+            percent(model.firstChoiceRate), model.averageRank ?? "—", percent(model.questionCoverage), percent(model.stability)])));
+        box.append(table(["模型", "品牌", "提及率", "推荐率", "首推率"], ofModel(context, visibility.brands).map(row => [
+            row.channelName + " · " + row.modelName, row.brandName + (row.target ? "（目标）" : ""),
+            percent(row.mentionRate), percent(row.recommendRate), percent(row.firstChoiceRate)]), 2));
+        return box;
+    }
+
+    /**
+     * 地域的提升策略：品牌优化方向、从未点名到正向点名、已正向点名提升排名，每条有操作路径和「看证据」。
+     * @param {object} context 模型筛选与查看入口，见 renderTab
+     * @param {object} strategy 提升策略：status 为 SUCCEEDED、NO_OPPORTUNITIES 或 FAILED
+     * @return {HTMLElement} 提升策略内容
+     */
+    function renderRegionStrategy(context, strategy) {
+        if (strategy.status === "NO_OPPORTUNITIES") return element("p", "report-empty", "该地域没有发现机会，未生成策略。");
+        if (strategy.status === "FAILED") return element("p", "report-empty", strategy.errorMessage);
+        const box = element("div", "report-strategy");
+        for (const [key, title, help] of [["brandDirections", "品牌优化方向", "结合当地用户习惯、常用平台和购买渠道的品牌优化方向"],
+            ["mentionPlays", "从未点名到正向点名", "目标没被提到或没被推荐的题，怎么让模型正向点名"],
+            ["rankPlays", "已正向点名：提升排名", "目标已被推荐但不是首推的题，怎么往前排"]]) {
+            const list = element("div", "report-dimension-list");
+            list.append(element("h4", null, title), element("p", "help", help));
+            if (!strategy[key].length) list.append(element("p", "report-empty", "暂无"));
+            for (const item of strategy[key]) list.append(strategyItem(context, item));
+            box.append(list);
+        }
+        return box;
+    }
+
+    /**
+     * 一条策略：标题、证据状态、说明、操作步骤，引用了机会时附「看证据」。
+     * @param {object} context 模型筛选与查看入口，见 renderTab
+     * @param {{title:string, content:string, steps:string[], evidenceStatus:string, opportunityIds:string[]}} item 策略条目
+     * @return {HTMLElement} 一条策略
+     */
+    function strategyItem(context, item) {
+        const node = element("div", "report-dimension report-advice-item");
+        node.append(element("strong", null, item.title), element("span", "report-advice-meta", evidenceStatusLabels[item.evidenceStatus] || item.evidenceStatus));
+        if (item.content) node.append(element("p", "report-advice-content", item.content));
+        if (item.steps.length) {
+            const steps = element("ol", "report-steps");
+            for (const step of item.steps) steps.append(element("li", null, step));
+            node.append(steps);
+        }
+        if (item.opportunityIds.length) {
+            const line = element("p", "report-quote");
+            line.append(context.entries.evidence(item.opportunityIds));
+            node.append(line);
+        }
+        return node;
+    }
+
+    /**
+     * 切换子页签：只显示同组里所选的内容；页面上点地域子页签时调用，导出网页里由导出脚本做同样的事。
+     * @param {HTMLElement} group 带 data-subtab-group 的子页签组
+     * @param {string} key 所选子页签的 data-subtab 值；组里没有这个值时显示第一个
+     */
+    function selectSubtab(group, key) {
+        const subtabs = [...group.querySelectorAll("[data-subtab]")];
+        const selected = subtabs.some(tab => tab.dataset.subtab === key) ? key : subtabs[0]?.dataset.subtab;
+        subtabs.forEach(tab => tab.setAttribute("aria-selected", String(tab.dataset.subtab === selected)));
+        group.querySelectorAll("[data-subtab-panel]").forEach(content => { content.hidden = content.dataset.subtabPanel !== selected; });
+    }
+
+    /**
      * 建议、发现或问题的一行：标题、补充说明、正文，以及「看证据」入口。
      * @param {object} context 模型筛选与查看入口，见 renderTab
      * @param {string} title 标题
@@ -277,23 +441,34 @@
     }
 
     /**
-     * 逐个问题写出编号标题、支撑数字和证据；系统中的证据弹窗与导出网页中的证据弹窗共用。
+     * 逐个问题或机会写出编号标题、支撑数字和证据；系统中的证据弹窗与导出网页中的证据弹窗共用。
+     * 编号可能是 ⑥ 规则问题（P1…），也可能是 ⑦ 各地域的机会（R1-O1…），两者结构相同、编号不重复。
      * @param {object} context 模型筛选与查看入口，见 renderTab
      * @param {HTMLElement} container 写入的容器；加上证据样式类，两处证据弹窗的标题样式一致
      * @param {object} summary 证据所属报告的冻结汇总
-     * @param {string[]} issueIds 问题编号，按报告中的问题顺序输出
+     * @param {string[]} issueIds 问题或机会编号，按报告中的先后输出
      */
     function renderEvidence(context, container, summary, issueIds) {
         container.classList.add("report-evidence");
-        for (const issue of summary.issues.filter(item => issueIds.includes(item.id))) {
+        const items = [...(summary.issues || []), ...(summary.region?.regions || []).flatMap(region => region.opportunities)];
+        for (const issue of items.filter(item => issueIds.includes(item.id))) {
             container.append(element("h4", null, issue.id + " " + issue.title), element("p", "help", metricsText(issue.metrics)));
             if (!issue.evidence.length) container.append(element("p", "report-empty", "此问题由上面的数字支撑，没有对应的回答原文。"));
-            for (const item of issue.evidence) {
-                const from = item.channelName + (item.brand ? " · " + item.brand : "");
-                container.append(item.quote != null ? quoteLine(context, item.quote, from, item.resultId)
-                    : answerLine(context, "问题：" + item.question + " — " + from, item.resultId));
-            }
+            for (const item of issue.evidence) container.append(evidenceLine(context, item));
         }
+    }
+
+    /**
+     * 一条证据：回答原文、引用的来源链接或问题原文，都带「看回答」入口。
+     * @param {object} context 模型筛选与查看入口，见 renderTab
+     * @param {{resultId:number, channelName:string, brand:?string, quote:?string, url:?string, title:?string, question:?string}} item 证据
+     * @return {HTMLElement} 一行内容
+     */
+    function evidenceLine(context, item) {
+        const from = item.channelName + (item.brand ? " · " + item.brand : "");
+        if (item.quote != null) return quoteLine(context, item.quote, from, item.resultId);
+        if (item.url != null) return answerLine(context, "来源：" + (item.title || item.url) + "（" + item.url + "）— " + from, item.resultId);
+        return answerLine(context, "问题：" + item.question + " — " + from, item.resultId);
     }
 
     /**
@@ -419,5 +594,5 @@
         return context.modelFilter ? rows.filter(row => String(row.channelId) === context.modelFilter) : rows;
     }
 
-    window.DiagnosisReportView = Object.freeze({statusLabels, tabs, buildReportNote, buildModelFilterNote, renderTab, renderEvidence});
+    window.DiagnosisReportView = Object.freeze({statusLabels, tabs, buildReportNote, buildModelFilterNote, renderTab, renderEvidence, selectSubtab});
 })();
