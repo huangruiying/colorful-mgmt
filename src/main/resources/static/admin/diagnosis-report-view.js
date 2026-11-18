@@ -77,7 +77,7 @@
 
     /**
      * ① 诊断概览：样本说明、各模型核心指标、主要发现与前三条优先行动。
-     * 数据：sample、models 由 ReportOverviewSummarizer 生成；主要发现与行动来自 advice（ReportLlmAnalyzer）与 issues（ReportIssueSummarizer）。
+     * 数据：sample、models 由 ReportOverviewSummarizer 生成；主要发现与行动来自 advice（TacticGenerator）与 issues（ReportIssueSummarizer）。
      * @param {object} context 模型筛选与查看入口，见 renderTab
      * @param {HTMLElement} panel 内容写入的容器
      * @param {object} summary 报告汇总
@@ -223,7 +223,7 @@
 
     /**
      * ⑥ 优化建议：模型写的建议与主要发现，以及规则发现的全部问题；每条都能打开证据。
-     * 数据：advice 由 ReportLlmAnalyzer 调用模型生成，issues 由 ReportIssueSummarizer 按固定阈值生成。
+     * 数据：advice 由 TacticGenerator 调用模型生成，issues 由 ReportIssueSummarizer 按固定阈值生成。
      * @param {object} context 模型筛选与查看入口，见 renderTab
      * @param {HTMLElement} panel 内容写入的容器
      * @param {object} summary 报告汇总
@@ -255,7 +255,7 @@
 
     /**
      * ⑦ 地域报告：按问题的地域分子页签，每个地域给出宣传状态、大模型可见度、机会与提升策略。
-     * 数据：summary.region，由 ReportRegionSummarizer 生成；各地域的 strategy 由 ReportLlmAnalyzer 调用模型写入。
+     * 数据：summary.region，由 ReportRegionSummarizer 生成；各地域的 strategy 由 TacticGenerator 调用模型写入。
      * 旧报告没有 region，问题都不分地域时 regions 为空，两种情况都只显示说明。
      * @param {object} context 模型筛选与查看入口，见 renderTab
      * @param {HTMLElement} panel 内容写入的容器

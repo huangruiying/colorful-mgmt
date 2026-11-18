@@ -3,7 +3,8 @@ package org.huangry.colorful.geo.application.diagnosis;
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
-import org.huangry.colorful.geo.domain.service.diagnosis.report.llm.ReportLlmAnalyzer;
+import org.huangry.colorful.geo.domain.service.diagnosis.report.dimension.DimensionNormalizer;
+import org.huangry.colorful.geo.domain.service.diagnosis.report.tactic.TacticGenerator;
 import org.huangry.colorful.geo.domain.service.diagnosis.report.summary.ReportSummarizer;
 import org.huangry.colorful.geo.domain.service.diagnosis.DiagnosisTaskSnapshots;
 import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisReportService;
@@ -30,7 +31,8 @@ class DiagnosisReportSupplementBusinessTest {
     private final GeoDiagnosisReportDao reportDao = mock(GeoDiagnosisReportDao.class);
     private final GeoDiagnosisReportService reportService = mock(GeoDiagnosisReportService.class);
     private final ReportSummarizer summarizer = mock(ReportSummarizer.class);
-    private final ReportLlmAnalyzer llmAnalyzer = mock(ReportLlmAnalyzer.class);
+    private final DimensionNormalizer dimensionNormalizer = mock(DimensionNormalizer.class);
+    private final TacticGenerator tacticGenerator = mock(TacticGenerator.class);
     private final GeoLlmChannelService channelService = mock(GeoLlmChannelService.class);
     private final DiagnosisReportBusiness reportBusiness = mock(DiagnosisReportBusiness.class);
     private final GeoLlmChannelEntity channel = new GeoLlmChannelEntity();
@@ -42,7 +44,7 @@ class DiagnosisReportSupplementBusinessTest {
         when(summarizer.buildSummary(any(), any(), any(), any(), eq("v1"))).thenReturn(new JSONObject()
                 .fluentPut("sample", new JSONObject().fluentPut("validAnswers", 99)).fluentPut("brand", new JSONObject())
                 .fluentPut("competitor", new JSONObject()).fluentPut("source", new JSONObject()).fluentPut("issues", new JSONArray()));
-        when(llmAnalyzer.generateAdvice(any(), any(), same(channel), eq(9L), eq("中文"))).thenReturn(new JSONObject().fluentPut("status", "NO_ISSUES"));
+        when(tacticGenerator.generateAdvice(any(), any(), same(channel), eq(9L), eq("中文"))).thenReturn(new JSONObject().fluentPut("status", "NO_ISSUES"));
 
         business.supplementReport(9L);
 
@@ -66,7 +68,7 @@ class DiagnosisReportSupplementBusinessTest {
         assertThrows(NoSuchElementException.class, () -> business.supplementReport(99L));
         assertEquals("只有已完成的报告可以补全", assertThrows(IllegalArgumentException.class, () -> business.supplementReport(8L)).getMessage());
         assertEquals("该报告内容完整，无需补全", assertThrows(IllegalArgumentException.class, () -> business.supplementReport(7L)).getMessage());
-        verifyNoInteractions(llmAnalyzer);
+        verifyNoInteractions(dimensionNormalizer, tacticGenerator);
     }
 
     /** 判定渠道已删除时不换用其他模型，也不调用模型。 */
@@ -76,7 +78,7 @@ class DiagnosisReportSupplementBusinessTest {
         when(channelService.getById(6L)).thenReturn(null);
 
         assertTrue(assertThrows(IllegalArgumentException.class, () -> business.supplementReport(9L)).getMessage().contains("判定渠道已被删除"));
-        verifyNoInteractions(llmAnalyzer);
+        verifyNoInteractions(dimensionNormalizer, tacticGenerator);
     }
 
     /** 只缺建议时只补建议；建议不缺时不调用模型写建议，已有部分保持原样。 */
@@ -96,7 +98,7 @@ class DiagnosisReportSupplementBusinessTest {
         JSONObject summary = JSON.parseObject(saved.getValue());
         assertTrue(summary.getJSONObject("brand").getBooleanValue("recalculated"));
         assertTrue(summary.getJSONObject("issues").getBooleanValue("frozen"));
-        verify(llmAnalyzer, never()).generateAdvice(any(), any(), any(), anyLong(), any());
+        verify(tacticGenerator, never()).generateAdvice(any(), any(), any(), anyLong(), any());
     }
 
     /** 同一份报告补全期间再次补全被拒绝；补全结束后释放，可以再次进入。 */
@@ -104,9 +106,9 @@ class DiagnosisReportSupplementBusinessTest {
     void shouldRejectSameReportWhileSupplementing() {
         when(reportDao.selectById(9L)).thenReturn(report("SUCCEEDED", "{\"sample\":{}}"));
         when(summarizer.buildSummary(any(), any(), any(), any(), any())).thenReturn(new JSONObject().fluentPut("issues", new JSONArray()));
-        when(llmAnalyzer.generateAdvice(any(), any(), any(), anyLong(), any())).thenReturn(new JSONObject().fluentPut("status", "NO_ISSUES"));
+        when(tacticGenerator.generateAdvice(any(), any(), any(), anyLong(), any())).thenReturn(new JSONObject().fluentPut("status", "NO_ISSUES"));
         // 第一次补全调用模型期间，同一份报告再次请求补全
-        when(llmAnalyzer.normalizeDimensions(any(), any(), anyLong(), any())).thenAnswer(invocation -> {
+        when(dimensionNormalizer.normalizeDimensions(any(), any(), anyLong(), any())).thenAnswer(invocation -> {
             assertEquals("该报告正在补全，请稍候", assertThrows(IllegalArgumentException.class, () -> business.supplementReport(9L)).getMessage());
             return Map.of();
         });
@@ -122,14 +124,15 @@ class DiagnosisReportSupplementBusinessTest {
         ReflectionTestUtils.setField(business, "geoDiagnosisReportDao", reportDao);
         ReflectionTestUtils.setField(business, "geoDiagnosisReportService", reportService);
         ReflectionTestUtils.setField(business, "reportSummarizer", summarizer);
-        ReflectionTestUtils.setField(business, "reportLlmAnalyzer", llmAnalyzer);
+        ReflectionTestUtils.setField(business, "dimensionNormalizer", dimensionNormalizer);
+        ReflectionTestUtils.setField(business, "tacticGenerator", tacticGenerator);
         ReflectionTestUtils.setField(business, "diagnosisTaskSnapshots", new DiagnosisTaskSnapshots());
         ReflectionTestUtils.setField(business, "geoLlmChannelService", channelService);
         ReflectionTestUtils.setField(business, "diagnosisReportBusiness", reportBusiness);
         when(channelService.getById(6L)).thenReturn(channel);
         when(reportService.getTaskSnapshot(30L)).thenReturn(new JSONObject().fluentPut("project", new JSONObject().fluentPut("name", "团油")));
         when(reportService.loadAnswers(anyLong())).thenReturn(List.of());
-        when(llmAnalyzer.normalizeDimensions(any(), any(), anyLong(), any())).thenReturn(Map.of());
+        when(dimensionNormalizer.normalizeDimensions(any(), any(), anyLong(), any())).thenReturn(Map.of());
     }
 
     /**

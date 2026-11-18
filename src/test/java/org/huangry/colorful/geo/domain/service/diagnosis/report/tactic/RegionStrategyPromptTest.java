@@ -1,4 +1,4 @@
-package org.huangry.colorful.geo.domain.service.diagnosis.report.llm;
+package org.huangry.colorful.geo.domain.service.diagnosis.report.tactic;
 
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONArray;
