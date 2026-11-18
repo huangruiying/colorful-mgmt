@@ -22,7 +22,7 @@ public enum ProjectInfoImportExportTable {
 	/**
 	 * 方案当前问题，已删除问题通过历史快照保留。
 	 */
-	QUESTION("questions", "geo_diagnosis_plan_question", "id,plan_id,question_text,source,intent,brand_scope,language,sort_order"),
+	QUESTION("questions", "geo_diagnosis_plan_question", "id,plan_id,question_text,source,intent,brand_scope,language,region,sort_order"),
 	/**
 	 * 方案选择的渠道关联，不包含渠道配置。
 	 */
@@ -38,7 +38,7 @@ public enum ProjectInfoImportExportTable {
 	/**
 	 * 已结束的诊断报告及冻结汇总。
 	 */
-	REPORT("reports", "geo_diagnosis_task_report", "id,task_id,status,judge_channel_snapshot,prompt_version,summary,error_message,started_at,finished_at,created_at,updated_at"),
+	REPORT("reports", "geo_diagnosis_task_report", "id,task_id,status,judge_channel_snapshot,prompt_version,report_language,summary,error_message,started_at,finished_at,created_at,updated_at"),
 	/**
 	 * 报告中的回答判定和人工修正。
 	 */
@@ -50,6 +50,11 @@ public enum ProjectInfoImportExportTable {
 	public static final Set<String> JSON_COLUMNS = Set.of("aliases", "competitors", "keywords", "plan_snapshot",
 			"question_snapshot", "channel_snapshot", "citations", "usage_info", "judge_channel_snapshot",
 			"summary", "brands", "points", "sources");
+	/**
+	 * 文件中可以缺省的列：文件格式 v1 发布后才新增的列，早期导出的文件没有，导入时不写这一列，由数据库默认值补上。
+	 * region 为问题地域，缺省即不分地域；report_language 为报告语言，缺省即中文。
+	 */
+	public static final Set<String> OPTIONAL_COLUMNS = Set.of("region", "report_language");
 	/**
 	 * 导出文件中的分区名称，属于文件格式；改名会导致已导出的文件无法导入。
 	 */

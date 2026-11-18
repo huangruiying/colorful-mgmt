@@ -3,6 +3,7 @@ package org.huangry.colorful.geo.presentation.controller;
 import jakarta.annotation.Resource;
 import org.huangry.colorful.geo.application.diagnosis.DiagnosisTaskReportBusiness;
 import org.huangry.colorful.geo.application.diagnosis.DiagnosisTaskReportSupplementBusiness;
+import org.huangry.colorful.geo.application.diagnosis.model.CreateDiagnosisTaskReportRequest;
 import org.huangry.colorful.geo.application.diagnosis.model.DiagnosisTaskReportResponse;
 import org.huangry.colorful.geo.application.diagnosis.model.DiagnosisTaskResponse;
 import org.huangry.colorful.geo.infrastructure.common.model.PageResponse;
@@ -13,7 +14,8 @@ import org.springframework.web.bind.annotation.*;
 
 
 /**
- * 诊断报告入口；生成立即返回，判定与汇总由后台执行器完成，关闭页面不影响生成。
+ * 诊断报告的管理接口：生成、查询与补全诊断报告。
+ * <p>生成立即返回，判定与汇总由后台执行器完成，关闭页面不影响生成。</p>
  */
 @RestController
 @RequestMapping("/diagnosis-reports")
@@ -24,15 +26,18 @@ public class MgmtDiagnosisTaskReportController {
 	private DiagnosisTaskReportSupplementBusiness diagnosisTaskReportSupplementBusiness;
 
 	/**
-	 * 生成诊断报告。
+	 * 生成诊断报告，可指定报告语言。
+	 * <p>请求体可省略：页面刷新前的旧脚本不带请求体，按中文生成。</p>
 	 *
 	 * @param diagnosisTaskId 诊断任务 ID（geo_diagnosis_task.id）
+	 * @param request 可选，报告语言
 	 * @return 新建的报告
 	 */
 	@PostMapping("/diagnosis-tasks/{diagnosisTaskId}")
 	@ResponseStatus(HttpStatus.CREATED)
-	public DiagnosisTaskReportResponse createReport(@PathVariable("diagnosisTaskId") long diagnosisTaskId) {
-		return diagnosisTaskReportBusiness.createReport(diagnosisTaskId);
+	public DiagnosisTaskReportResponse createReport(@PathVariable("diagnosisTaskId") long diagnosisTaskId,
+	                                                @RequestBody(required = false) CreateDiagnosisTaskReportRequest request) {
+		return diagnosisTaskReportBusiness.createReport(diagnosisTaskId, request == null ? null : request.reportLanguage());
 	}
 
 	/**

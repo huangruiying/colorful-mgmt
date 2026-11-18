@@ -127,13 +127,13 @@ public class ReportCompetitorSummarizer {
 
     /**
      * 目标与预设竞品放在同一张表里比较：每个模型、每个品牌一行，口径与 ② 的目标指标相同（只算非品牌问题）。
-     * <p>对比问题本身就点了竞品的名，算进来提及率会虚高，所以不计入。</p>
+     * <p>对比问题本身就点了竞品的名，算进来提及率会虚高，所以不计入。⑦ 地域报告传入单个地域的回答复用同一口径。</p>
      * @param judged 判定成功的回答
      * @param targetName 目标名称
      * @param competitors 预设竞品名称
      * @return 每个模型、品牌一行：brandName、target（是否目标）、nonBrandAnswers、mentionRate、recommendRate、firstChoiceRate
      */
-    private JSONArray listBrandVisibilityByModel(List<ReportAnswerFacts> judged, String targetName, List<String> competitors) {
+    JSONArray listBrandVisibilityByModel(List<ReportAnswerFacts> judged, String targetName, List<String> competitors) {
         JSONArray rows = new JSONArray();
         for (List<ReportAnswerFacts> channelFacts : groupByChannel(judged).values()) {
             ReportAnswerFacts first = channelFacts.get(0);

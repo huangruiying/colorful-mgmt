@@ -60,10 +60,11 @@ public class ReportOverviewSummarizer {
 
     /**
      * 按模型计算核心指标：非品牌问题的可见度、点名问题的品牌正面率、非品牌与对比问题的推荐份额。
+     * <p>⑦ 地域报告传入单个地域的回答复用同一口径。</p>
      * @param judged 判定成功的回答
      * @return 每个模型一行
      */
-    private JSONArray listModelMetrics(List<ReportAnswerFacts> judged) {
+    JSONArray listModelMetrics(List<ReportAnswerFacts> judged) {
         JSONArray rows = new JSONArray();
         for (List<ReportAnswerFacts> channelFacts : groupByChannel(judged).values()) {
             ReportAnswerFacts first = channelFacts.get(0);

@@ -174,7 +174,7 @@ public class DiagnosisTaskReportWorker {
 			if (analysis == null) {
 				break;
 			}
-			resultAnalyzer.analyzeResult(analysis, project, publishedUrls, channel);
+			resultAnalyzer.analyzeResult(analysis, project, publishedUrls, channel, report.getReportLanguage());
 		}
 		if (stopped || Thread.currentThread().isInterrupted()) {
 			throw new IllegalStateException("诊断报告执行服务正在停止");
@@ -216,12 +216,13 @@ public class DiagnosisTaskReportWorker {
 	}
 
 	/**
-	 * 归一维度并汇总，再生成优化建议，一起冻结到报告；全部判定失败或汇总异常时报告失败，避免反复重试产生费用。
-	 * <p>优化建议生成失败不影响报告成功，summary.advice 记为失败，规则发现的问题照常保存。</p>
+	 * 归一维度并汇总，再生成优化建议和 ⑦ 各地域的提升策略，一起冻结到报告；全部判定失败或汇总异常时报告失败，避免反复重试产生费用。
+	 * <p>优化建议生成失败不影响报告成功，summary.advice 记为失败，规则发现的问题照常保存；某个地域的策略失败只记在该地域的 strategy 上。
+	 * 维度名、建议与策略都按报告语言书写。</p>
 	 *
-	 * @param report  报告
+	 * @param report  报告，提供报告语言
 	 * @param project 项目资料
-	 * @param channel 判定渠道，用于维度归一与优化建议调用
+	 * @param channel 判定渠道，用于维度归一、优化建议与地域策略调用
 	 */
 	private void summarize(GeoDiagnosisTaskReportEntity report, JSONObject project, GeoLlmChannelEntity channel) {
 		try {
@@ -233,11 +234,15 @@ public class DiagnosisTaskReportWorker {
 				return;
 			}
 			// 2. 维度归一（非核心，失败时保持原名）后计算指标并冻结
-			Map<String, String> mapping = reportLlmAnalyzer.normalizeDimensions(answers, channel, report.getId());
+			String reportLanguage = report.getReportLanguage();
+			Map<String, String> mapping = reportLlmAnalyzer.normalizeDimensions(answers, channel, report.getId(), reportLanguage);
 			JSONObject summary = reportSummarizer.buildSummary(answers, project, mapping,
 					(JSONObject) diagnosisTaskSnapshots.parseSnapshot(report.getJudgeChannelSnapshot()), report.getPromptVersion());
-			// 3. 基于规则发现的问题生成优化建议（非核心，失败时只记录在 advice 上），然后冻结
-			summary.put("advice", reportLlmAnalyzer.generateAdvice(summary.getJSONArray("issues"), project, channel, report.getId()));
+			// 3. 基于规则发现的问题生成优化建议（非核心，失败时只记录在 advice 上）
+			summary.put("advice", reportLlmAnalyzer.generateAdvice(summary.getJSONArray("issues"), project, channel, report.getId(), reportLanguage));
+			// 4. ⑦ 每个有机会的地域调用一次模型写提升策略（非核心，失败只记录在该地域上）
+			reportLlmAnalyzer.generateRegionStrategies(summary.getJSONObject("region"), project, channel, report.getId(), reportLanguage);
+			// 5. 汇总、建议与策略一起冻结，报告完成
 			geoDiagnosisTaskReportService.finishReport(report.getId(), JSON.toJSONString(summary, SerializerFeature.WriteMapNullValue));
 			log.info("诊断报告生成完成 reportId={}, answers={}", report.getId(), answers.size());
 		} catch (RuntimeException exception) {

@@ -85,10 +85,11 @@ public class ReportBrandSummarizer {
 
     /**
      * 负面来源：判定为负面评价的点名回答引用了哪些平台，按次数降序，每个平台附最多 EXAMPLE_LIMIT 个链接，用来决定去哪里处理。
+     * <p>⑦ 地域报告传入单个地域的点名回答复用同一口径。</p>
      * @param brandFacts 判定成功的点名问题回答
      * @return 每个平台一行：platform、count、links（url、title、resultId）
      */
-    private JSONArray listNegativeSources(List<ReportAnswerFacts> brandFacts) {
+    JSONArray listNegativeSources(List<ReportAnswerFacts> brandFacts) {
         Map<String, JSONObject> byPlatform = new LinkedHashMap<>();
         for (ReportAnswerFacts fact : brandFacts) {
             if (!"NEGATIVE".equals(fact.answer().analysis().getBrandSentiment())) {
@@ -118,10 +119,11 @@ public class ReportBrandSummarizer {
 
     /**
      * 错误信息清单：点名问题回答中与项目资料不符的描述，按回答顺序列出，最多 RANKING_LIMIT 条。
+     * <p>⑦ 地域报告传入单个地域的点名回答复用同一口径。</p>
      * @param brandFacts 判定成功的点名问题回答
      * @return 每条错误一行：resultId、channelId、channelName、content（错在哪）、quote（回答原文）
      */
-    private JSONArray listFactErrors(List<ReportAnswerFacts> brandFacts) {
+    JSONArray listFactErrors(List<ReportAnswerFacts> brandFacts) {
         JSONArray rows = new JSONArray();
         for (ReportAnswerFacts fact : brandFacts) {
             for (JSONObject point : listPoints(fact.answer())) {

@@ -86,13 +86,14 @@ public class DiagnosisTaskReportSupplementBusiness {
         JSONObject judgeChannel = (JSONObject) diagnosisTaskSnapshots.parseSnapshot(report.getJudgeChannelSnapshot());
         GeoLlmChannelEntity channel = getJudgeChannel(judgeChannel);
 
-        // 2. 用已保存的判定结果重算汇总，维度归一与优化建议沿用报告冻结的判定渠道
+        // 2. 用已保存的判定结果重算汇总，维度归一与优化建议沿用报告冻结的判定渠道和报告语言（旧报告为中文）
         JSONObject project = geoDiagnosisTaskReportService.getTaskSnapshot(report.getTaskId()).getJSONObject("project");
         List<ReportAnswer> answers = geoDiagnosisTaskReportService.loadAnswers(reportId);
-        Map<String, String> mapping = reportLlmAnalyzer.normalizeDimensions(answers, channel, reportId);
+        Map<String, String> mapping = reportLlmAnalyzer.normalizeDimensions(answers, channel, reportId, report.getReportLanguage());
         JSONObject recalculated = reportSummarizer.buildSummary(answers, project, mapping, judgeChannel, report.getPromptVersion());
         if (missingParts.contains("advice")) {
-            recalculated.put("advice", reportLlmAnalyzer.generateAdvice(recalculated.getJSONArray("issues"), project, channel, reportId));
+            recalculated.put("advice", reportLlmAnalyzer.generateAdvice(recalculated.getJSONArray("issues"), project, channel, reportId,
+                    report.getReportLanguage()));
         }
 
         // 3. 只并入缺少的部分，已有部分保持生成时冻结的结论

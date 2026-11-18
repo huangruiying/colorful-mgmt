@@ -111,7 +111,7 @@ public class ProjectInfoImportExportValidator {
     }
 
     /**
-     * 检查行白名单、常用类型和可被后台领取的状态。
+     * 检查行白名单、常用类型和可被后台领取的状态；白名单列必须出现，文件格式发布后才新增的可空列允许缺省。
      * @param table 数据分区
      * @param row 文件行
      */
@@ -126,6 +126,10 @@ public class ProjectInfoImportExportValidator {
         // 2. 每列必须显式出现并符合存储类型，项目额外校验列表与地址的展示边界
         for (String field : fields) {
             if (!row.has(field)) {
+                // 早期导出的文件没有后加的列（问题地域、报告语言），缺省时写库跳过该列，由数据库默认值补上
+                if (OPTIONAL_COLUMNS.contains(field)) {
+                    continue;
+                }
                 throw new IllegalArgumentException("文件缺少字段：" + table.section + "." + field);
             }
             validateColumnType(field, row.get(field));

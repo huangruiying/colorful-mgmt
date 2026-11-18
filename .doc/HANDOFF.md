@@ -2,6 +2,13 @@
 
 > 已讨论、暂不实施的想法记录在 [TODO.md](TODO.md)，接手时一并查看。
 
+## 当前交接：功能地图（2026-11-18）
+
+- 新增 [功能地图.html](功能地图.html)：总览加 11 个功能各一张流程图（项目档案、诊断方案、诊断任务、诊断报告、内容优化、预发布、数据导入导出、模型渠道、浏览器登录管理、浏览器人工接管、管理后台登录），依据 `.doc` 文档并按当前代码核对。图用 Mermaid 11.4.1（jsDelivr）在浏览器里画，离线时显示各图源码。
+- 与代码不一致的文档：`内容优化与多平台投放执行链路与架构.md` 的接口仍是 `/content-records/*`，代码已是 `/content-optimize/*`、`/content-publish/*`，图按代码画，文档未改。
+- 验证：本机 Chrome 无头打开，12 张图全部渲染、无控制台报错；「适应窗口宽度」后无图超出；拦截 Mermaid 脚本时显示离线提示和 12 段源码；逐张截图人工查看过布局。
+- 维护：流程变化时改对应区块里 `script.diagram-source` 的源码；补跑失败项、正式发布、效果回收是虚线（未实现），做完后去掉 `todoNode`。
+
 ## 当前交接：Sub2API 断连缓解及任务恢复（2026-11-17）
 
 - 已处理 Sub2API 部署（另一个仓库 `/Users/huangry/Documents/huangry-code/open-source/sub2api`）：`deploy/.env` 的 `GATEWAY_OPENAI_HTTP2_ENABLED=false`，`deploy/docker-compose.yml` 镜像固定为官方 `weishaw/sub2api:0.1.177`。已重建网关，未重建 PostgreSQL / Redis。

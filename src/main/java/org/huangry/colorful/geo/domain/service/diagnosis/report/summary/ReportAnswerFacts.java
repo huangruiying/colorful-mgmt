@@ -14,6 +14,7 @@ import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisTaskReportS
  * @param questionText 问题原文，用作问题类证据
  * @param brandScope 问题分组
  * @param intent 问题意图
+ * @param region 问题面向的地域，取自任务冻结的问题快照；不分地域或早于地域功能的快照为 null，⑦ 地域报告按它分组
  * @param judged 判定是否成功
  * @param mentioned 是否提到目标
  * @param target 判定中的目标品牌项，未出现时为 null
@@ -22,7 +23,7 @@ import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisTaskReportS
  * @param sources 规则归类后的来源：url、title、domain、platform、sourceType
  */
 public record ReportAnswerFacts(ReportAnswer answer, Long channelId, String channelName, String modelName, Integer questionSortOrder,
-                                String questionText, String brandScope, String intent, boolean judged, boolean mentioned, JSONObject target,
+                                String questionText, String brandScope, String intent, String region, boolean judged, boolean mentioned, JSONObject target,
                                 JSONArray brands, boolean searched, JSONArray sources) {
     /** 非品牌问题分组：问品类或场景，没有点名目标。 */
     private static final String NON_BRAND = "NON_BRAND";

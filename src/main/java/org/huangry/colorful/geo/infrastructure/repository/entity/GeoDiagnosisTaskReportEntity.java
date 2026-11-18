@@ -6,7 +6,10 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import java.time.LocalDateTime;
 
-/** 映射 geo_diagnosis_task_report，保存一次手动生成的诊断报告状态与冻结结果；通过 DAO 持久化，不负责判定与汇总。 */
+/**
+ * 一份诊断报告的数据库记录：生成状态、判定口径、报告语言与冻结的汇总结果。
+ * <p>对应表 geo_diagnosis_task_report，每次手动生成一份；通过 DAO 持久化，不负责判定与汇总。</p>
+ */
 @Data
 @TableName("geo_diagnosis_task_report")
 public class GeoDiagnosisTaskReportEntity {
@@ -20,6 +23,8 @@ public class GeoDiagnosisTaskReportEntity {
     private String judgeChannelSnapshot;
     /** 判定提示词版本，用于说明报告结论的判定口径。 */
     private String promptVersion;
+    /** 报告语言，生成报告时选择，默认中文：解析出来的观点概括、维度名、建议与地域策略按此语言书写，问题、回答、引用等原文不翻译。 */
+    private String reportLanguage;
     /** JSON 字符串：冻结的汇总指标、主要发现与优化建议；生成成功后写入，之后不随规则或数据变化重算。 */
     private String summary;
     /** 脱敏后的生成失败原因，不保存远程异常原文。 */

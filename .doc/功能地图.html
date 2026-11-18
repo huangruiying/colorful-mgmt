@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>功能地图</title>
+<style>
+  :root {
+    --bg: #141416;
+    --panel: #1b1b1f;
+    --line: #2c2f36;
+    --text: #e6e9ef;
+    --muted: #9aa3af;
+    --accent: #5a8fd8;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+    line-height: 1.6;
+  }
+  header { padding: 28px 32px 12px; }
+  h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: .5px; }
+  .sub { color: var(--muted); font-size: 14px; margin: 0; }
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 14px; font-size: 13px; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { display: inline-block; width: 22px; height: 13px; border-radius: 4px; border: 1.5px solid; }
+  nav.index {
+    position: sticky; top: 0; z-index: 5;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
+    padding: 10px 32px;
+    background: rgba(20, 20, 22, .94);
+    backdrop-filter: blur(6px);
+    border-bottom: 1px solid var(--line);
+  }
+  nav.index .group { color: var(--muted); font-size: 12px; margin-left: 8px; }
+  nav.index .group:first-child { margin-left: 0; }
+  nav.index a {
+    color: #cfd8e6; text-decoration: none; font-size: 13px;
+    padding: 3px 10px; border-radius: 999px; border: 1px solid #2f3540;
+  }
+  nav.index a:hover { border-color: var(--accent); }
+  nav.index button {
+    margin-left: auto; cursor: pointer; font: inherit; font-size: 13px;
+    color: #cfd8e6; background: #22262d; border: 1px solid #3a404b; border-radius: 8px; padding: 4px 12px;
+  }
+  nav.index button:hover { border-color: var(--accent); }
+  main { padding: 4px 32px 48px; }
+  section.map {
+    margin-top: 24px; scroll-margin-top: 64px;
+    border: 1px solid var(--line); border-radius: 12px; background: var(--panel);
+  }
+  section.map .head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; padding: 16px 20px 4px; }
+  section.map h2 { font-size: 18px; margin: 0; }
+  .tag { font-size: 12px; color: var(--muted); border: 1px solid #343a45; border-radius: 999px; padding: 0 8px; }
+  .caption { margin: 0; padding: 0 20px 8px; color: var(--muted); font-size: 13px; }
+  .diagram { overflow-x: auto; padding: 8px 20px 20px; }
+  .diagram svg { max-width: none; height: auto; }
+  body.fit .diagram svg { width: 100% !important; max-width: 100% !important; height: auto; }
+  .diagram pre {
+    margin: 0; white-space: pre-wrap; color: #c3cad5;
+    font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px;
+  }
+  .diagram pre.error { color: #f0a0a0; }
+  .notice { margin: 16px 32px 0; padding: 10px 14px; border: 1px solid #6b4e2a; border-radius: 8px; color: #f0d6a8; background: #2a2219; font-size: 13px; }
+  footer { padding: 0 32px 40px; color: var(--muted); font-size: 12px; }
+  @media (max-width: 640px) {
+    header, main, footer { padding-left: 16px; padding-right: 16px; }
+    nav.index { padding: 8px 16px; }
+    nav.index button { margin-left: 0; }
+    .notice { margin: 16px 16px 0; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>功能地图</h1>
+  <p class="sub">依据 .doc 下的设计文档整理，并按当前代码核对，不一致处以代码为准 · 2026-11-18 · 一个功能一张图</p>
+  <div class="legend">
+    <span><i style="background:#2b3b52;border-color:#5a8fd8"></i>页面操作或系统步骤</span>
+    <span><i style="background:#1e3a37;border-color:#3fb3a2"></i>后台执行器</span>
+    <span><i style="background:#352c50;border-color:#9d7fe0"></i>调用大模型</span>
+    <span><i style="background:#22402e;border-color:#4fb477"></i>成功结束</span>
+    <span><i style="background:#45391f;border-color:#d9a441"></i>部分成功或待核对</span>
+    <span><i style="background:#47272b;border-color:#d0605e"></i>失败或被拒绝</span>
+    <span><i style="background:#24262b;border-color:#7c7f87;border-style:dashed"></i>未实现或规划中</span>
+    <span><i style="background:#202329;border-color:#4b5563"></i>说明</span>
+  </div>
+</header>
+
+<nav class="index">
+  <span class="group">总览</span><a href="#overview">功能怎么串起来</a>
+  <span class="group">项目管理</span><a href="#project">项目档案</a>
+  <span class="group">资产诊断</span><a href="#plan">诊断方案</a><a href="#task">诊断任务</a><a href="#report">诊断报告</a>
+  <span class="group">内容投放</span><a href="#content">内容优化</a><a href="#prepublish">预发布</a>
+  <span class="group">基础配置</span><a href="#transfer">数据导入导出</a><a href="#channel">模型渠道</a><a href="#browser-login">浏览器登录管理</a>
+  <span class="group">全局能力</span><a href="#takeover">浏览器人工接管</a><a href="#admin-login">管理后台登录</a>
+  <button type="button" id="fit-toggle">适应窗口宽度</button>
+</nav>
+
+<main>
+
+<section class="map" id="overview">
+  <div class="head"><h2>功能怎么串起来</h2><span class="tag">总览</span></div>
+  <p class="caption">主线是项目 → 诊断方案 → 诊断任务 → 诊断报告 → 内容优化 → 预发布；模型渠道、平台登录、人工接管、导入导出是接在主线上的支撑功能。</p>
+  <div class="diagram"></div>
+  <script type="text/plain" class="diagram-source">
+flowchart LR
+  login(["登录管理后台"]) --> project("项目档案<br/>目标品牌、别名、竞品、卖点")
+  project --> plan("诊断方案<br/>问哪些问题、问哪些模型<br/>每题问几遍")
+  plan --> task("诊断任务<br/>后台逐条去问被测模型<br/>存下回答")
+  task --> report("诊断报告<br/>逐条判定回答<br/>汇总成 7 个页签")
+  report -.->|按建议准备内容| content("内容优化<br/>大模型按 GEO 规则改写文章")
+  content --> prepub("预发布<br/>后台到各平台建草稿")
+  prepub -.-> publish("正式发布<br/>只有知乎有能力，页面未开放")
+  publish -.-> effect("效果回收<br/>曝光、互动、归因，规划中")
+  prepub -.->|已发文章网址，看有没有被引用| report
+  channel("模型渠道<br/>可调用的大模型和密钥") -->|制题、被测模型| plan
+  channel -->|判定、建议、地域策略| report
+  channel -->|改写文章| content
+  browserLogin("浏览器登录管理<br/>保存各平台登录态") -->|登录态| prepub
+  prepub -.->|遇到安全验证| takeover("浏览器人工接管<br/>人在实时画面上完成验证")
+  transfer("数据导入导出<br/>按项目迁移到其他环境") -.->|导出、导入| project
+  class publish,effect todoNode
+  </script>
+</section>
+
+<section class="map" id="project">
+  <div class="head"><h2>项目档案</h2><span class="tag">项目管理 · 项目创建、项目列表</span></div>
+  <p class="caption">制题和判定都从项目资料出发。项目创建后目前没有修改入口，只能删除；删除会连带删掉它的全部诊断数据。</p>
+  <div class="diagram"></div>
+  <script type="text/plain" class="diagram-source">
+flowchart LR
+  start(["项目创建"]) --> fill("填写项目资料<br/>名称、官网、行业、关键词<br/>别名、竞品<br/>核心功能、卖点、价格<br/>目标用户、目标市场、目标语言")
+  fill --> check{"必填齐全、<br/>官网地址有效吗"}
+  check -->|否| fixIt("提示哪一项不对<br/>改完再提交")
+  fixIt --> fill
+  check -->|是| saved(["项目已创建<br/>目前没有修改入口"])
+  saved --> list("项目列表<br/>按名称搜索、分页")
+  list -->|删除| confirmDel{"确认删除吗<br/>弹窗提示先导出"}
+  confirmDel -->|取消| list
+  confirmDel -->|确认| cascade("一个事务删除<br/>方案、任务、诊断结果<br/>报告、回答分析<br/>执行中的也一起删")
+  cascade --> deleted(["项目已删除，不能恢复<br/>模型渠道、内容和<br/>发布记录保留"])
+  saved -.- usage("项目资料的用途<br/>制题：不含目标市场、目标语言<br/>判定：别名、竞品用来认品牌<br/>卖点、价格用来判断描述对错")
+  class fixIt badNode
+  class saved okNode
+  class usage noteNode
+  </script>
+</section>
+
+<section class="map" id="plan">
+  <div class="head"><h2>诊断方案</h2><span class="tag">资产诊断</span></div>
+  <p class="caption">方案只定义问什么、问哪些模型、每题问几遍，保存后不会自动执行。AI 生成问题时先出一套母题，再按每个地域改写成当地的问题。</p>
+  <div class="diagram"></div>
+  <script type="text/plain" class="diagram-source">
+flowchart LR
+  start(["新建或编辑方案"]) --> base("填写基础信息<br/>选项目、方案名<br/>每题重复 1–10 次<br/>被测模型 1–20 个，必须明确选")
+  base --> source{"问题从哪来"}
+  source -->|AI 生成| aiGen
+  subgraph aiGen ["AI 生成候选"]
+    direction TB
+    regions("填写按地域本地化<br/>至少一行：地域 + 语言<br/>语言可空") --> mother("生成母题<br/>按母题语言出一套<br/>所选地域都要成立<br/>每次 1–100 道，母题不保存")
+    mother --> motherOk{"生成成功吗"}
+    motherOk -->|成功| localize("按地域改写<br/>每行调一次模型<br/>改成当地语言和场景<br/>候选数 = 母题数 × 行数")
+    localize --> localizeOk{"改写成功吗"}
+    motherOk -->|失败| genFail("提示失败<br/>已有问题和候选都保留")
+    localizeOk -->|整批失败| genFail
+    genModel("制题模型可单独指定<br/>不指定就用分数最高的<br/>已启用渠道，不联网") -.-> mother
+  end
+  aiGen -->|改写成功| review("审核候选<br/>核对问题、意图、品牌范围<br/>语言、地域")
+  source -->|人工添加| manual("手动添加问题<br/>可以不分地域")
+  review --> addSet("勾选加入问题集合<br/>重复文本自动跳过")
+  manual --> addSet
+  addSet --> save("保存方案<br/>预计调用 =<br/>问题数 × 渠道数 × 重复次数")
+  save --> valid{"校验通过吗"}
+  valid -->|不通过| reason("提示原因<br/>如非品牌题出现品牌名<br/>超过 500 题")
+  reason --> addSet
+  valid -->|通过| saved(["方案已保存<br/>不会自动执行"])
+  saved -.->|到诊断任务手动发起| next(["发起诊断任务"])
+  class mother,localize llmNode
+  class genFail,reason badNode
+  class saved okNode
+  class genModel noteNode
+  </script>
+</section>
+
+<section class="map" id="task">
+  <div class="head"><h2>诊断任务</h2><span class="tag">资产诊断</span></div>
+  <p class="caption">发起时冻结方案配置，后台按题目顺序逐条调用被测模型。失败的不自动重发；失败或部分失败的任务可以「重新发起」，只重跑没成功的。</p>
+  <div class="diagram"></div>
+  <script type="text/plain" class="diagram-source">
+flowchart LR
+  start(["发起诊断<br/>选方案，核对题数、渠道<br/>重复次数、预计调用次数"]) --> create("创建任务<br/>冻结项目、问题、渠道配置<br/>之后改方案不影响这次<br/>重复提交只建一个")
+  create --> queued("排队中<br/>每题 × 每个渠道 × 每遍<br/>各一条待执行")
+  queued --> running("执行中")
+  worker("诊断后台执行器<br/>一个数据库只有一个在跑<br/>每秒检查一次") -->|领取最早排队的任务| running
+  running --> each
+  subgraph each ["逐条执行，一次一条"]
+    direction TB
+    channelOk{"渠道还在、<br/>配置没变吗"} -->|正常| ask("调用被测模型<br/>只发问题原文，开启联网")
+    channelOk -->|已删除或配置变了| itemFail("这一条失败<br/>要重新创建任务")
+    ask --> got{"拿到回答了吗"}
+    got -->|有回答| saveAnswer("保存回答<br/>正文、引用、实际模型<br/>用量、耗时")
+    got -->|超时、报错、空回答| callFail("这一条失败<br/>不自动重发")
+    itemFail & callFail & saveAnswer --> more{"还有待执行的吗"}
+    more -->|有，按题目顺序取下一条| channelOk
+  end
+  each -->|全部执行完| outcome{"结果汇总"}
+  running -.->|服务重启、保存出错| cut("中断<br/>没执行完的全部记失败<br/>已有回答保留，不重发")
+  cut --> outcome
+  outcome -->|全部成功| allOk(["成功"])
+  outcome -->|有成功也有失败| partial(["部分失败"])
+  outcome -->|一条都没成功| failed(["失败"])
+  restart("重新发起<br/>对失败或部分失败的任务<br/>没成功的改回待执行<br/>成功的保留，沿用原配置") -->|回到排队| queued
+  allOk & partial -.-> toReport(["可以生成诊断报告"])
+  class worker jobNode
+  class ask llmNode
+  class itemFail,callFail,cut,failed badNode
+  class allOk okNode
+  class partial warnNode
+  </script>
+</section>
+
+<section class="map" id="report">
+  <div class="head"><h2>诊断报告</h2><span class="tag">资产诊断</span></div>
+  <p class="caption">报告由后台分两段生成：先逐条判定回答（判一条存一条，服务中断后接着判），再一次性汇总出 7 个页签。判定失败的回答目前只能整份重新生成来补。</p>
+  <div class="diagram"></div>
+  <script type="text/plain" class="diagram-source">
+flowchart LR
+  start(["生成报告<br/>选已结束的诊断任务<br/>选报告语言，默认中文"]) --> can{"能生成吗"}
+  can -->|没结束、已在生成<br/>或没有有效回答| reject("提示原因")
+  can -->|可以| create("建报告和待判定记录<br/>每条有效回答一条<br/>被截断的不算")
+  create --> judgeOk{"判定模型<br/>可用吗"}
+  worker("报告后台执行器<br/>先续跑中断的，再领最早排队的<br/>首次锁定分数最高的已启用渠道<br/>续跑沿用同一个") -->|领取| judgeOk
+  resume("服务重启、数据库出错<br/>报告保持生成中，不算失败") -.->|下次领取时续跑| worker
+  judgeOk -->|已删除或没有启用渠道| fail1(["报告失败"])
+  judgeOk -->|可用| judge("逐条判定回答<br/>先按规则归类来源<br/>再调模型判定，不联网<br/>原文对不上的观点丢弃")
+  judge --> oneOk{"这条判定<br/>成功吗"}
+  oneOk -->|成功，保存| left{"还有没<br/>判定的吗"}
+  oneOk -->|失败，不重试| left
+  left -->|有| judge
+  left -->|没有| allFail{"全部判定<br/>失败了吗"}
+  allFail -->|是| fail2(["报告失败"])
+  allFail -->|否| summary
+  subgraph summary ["汇总，最后一次写入"]
+    direction TB
+    normalize("维度归一<br/>调 1 次模型合并同义维度<br/>失败就保留原名") --> rules("规则汇总<br/>① 概览 ② 可见度 ③ 品牌认知<br/>④ 竞品 ⑤ 引用 ⑥ 问题清单<br/>⑦ 地域机会")
+    rules --> advice("优化建议<br/>调 1 次模型<br/>失败只记在建议上")
+    advice --> strategy("⑦ 地域提升策略<br/>每个地域调 1 次模型<br/>失败只记在该地域")
+  end
+  summary --> finish(["报告完成<br/>7 个页签，可导出网页"])
+  summary -.->|汇总出错| fail3(["报告失败"])
+  finish -.->|旧报告缺少某个部分| supplement("补全报告<br/>用已存的判定重算缺的部分")
+  finish -.->|要重新判定| regenerate("重新生成<br/>新建一份，旧报告保留")
+  finish -.-> retry("补跑失败项<br/>只重判失败的再重新汇总<br/>规划中")
+  start -.- language("报告语言<br/>观点、维度、建议、策略按所选语言写<br/>问题、回答、引用保持原文")
+  class worker jobNode
+  class judge,normalize,advice,strategy llmNode
+  class reject,fail1,fail2,fail3 badNode
+  class finish okNode
+  class resume warnNode
+  class retry todoNode
+  class language noteNode
+  </script>
+</section>
+
+<section class="map" id="content">
+  <div class="head"><h2>内容优化</h2><span class="tag">内容投放 · 内容优化记录</span></div>
+  <p class="caption">把一篇文章交给大模型按 GEO 规则优化并保存；在详情里确认最终稿、选好平台后提交预发布。</p>
+  <div class="diagram"></div>
+  <script type="text/plain" class="diagram-source">
+flowchart LR
+  start(["新建优化"]) --> input("输入标题和原文<br/>可选优化偏好")
+  input --> optimize("调用大模型优化<br/>用分数最高的已启用渠道<br/>不联网")
+  optimize --> optOk{"优化成功吗"}
+  optOk -->|失败| optFail("提示失败<br/>不保存半成品")
+  optOk -->|成功| saved("保存优化记录<br/>原文、优化稿、策略<br/>警告、引用")
+  saved --> records("内容优化记录<br/>列表；详情里对照<br/>原文与优化稿")
+  records --> confirm("预发布弹窗<br/>检查或修改最终稿，勾选平台<br/>已成功或在执行的平台不能再选")
+  confirm --> submit(["提交预发布<br/>后续见「预发布」"])
+  class optimize llmNode
+  class optFail badNode
+  </script>
+</section>
+
+<section class="map" id="prepublish">
+  <div class="head"><h2>预发布</h2><span class="tag">内容投放 · 发布记录</span></div>
+  <p class="caption">提交后立即返回，由后台逐个平台建草稿。结果不确定时停在「预发布中」等人工核对；明确失败的平台可以重新选择提交。正式发布还没开放。</p>
+  <div class="diagram"></div>
+  <script type="text/plain" class="diagram-source">
+flowchart LR
+  submit(["提交预发布<br/>确认稿 + 所选平台<br/>只列已实现预发布的平台<br/>不检查是否已登录"]) --> exist{"这个平台<br/>已有记录吗"}
+  exist -->|已成功或在执行| skip("跳过<br/>不重复建草稿")
+  exist -->|上次明确失败且没有草稿| rebuild("删掉旧记录<br/>按新确认稿重建")
+  exist -->|没有| init("每个平台一条记录<br/>待预发布<br/>保存确认稿快照")
+  rebuild --> init
+  init --> back("立即返回<br/>页面每 3 秒刷新<br/>最长 15 分钟")
+  back --> records("发布记录页<br/>按文章筛选<br/>支持拼音搜索")
+  records -.->|删除| removeRecord("只删本地记录<br/>执行中不能删<br/>平台草稿不动")
+  init --> claim("预发布中<br/>平台之间串行执行")
+  worker("预发布后台执行器<br/>单线程，每秒领取一条") -->|待预发布 → 预发布中<br/>同一条只领一次| claim
+  claim --> platform
+  subgraph platform ["到平台上建草稿"]
+    direction TB
+    xhs{"是小红书吗"} -->|否| editor("用保存的登录态<br/>打开平台编辑器")
+    xhs -->|是| xhsDone(["预发布成功<br/>平台没有云端草稿<br/>只在系统保存确认稿"])
+    editor --> verify{"遇到安全<br/>验证了吗"}
+    verify -->|是，目前只有搜狐号接入| takeover("浏览器人工接管<br/>人在实时画面上完成验证")
+    verify -->|否| fillIn("填标题、正文<br/>保存草稿")
+    takeover -->|验证完成| fillIn
+  end
+  platform --> result{"平台怎么回复"}
+  platform -.->|人工接管放弃或<br/>10 分钟超时| fail
+  result -->|明确成功| success(["预发布成功<br/>记下草稿链接<br/>平台给了 ID 才存 ID"])
+  result -->|明确失败| fail(["预发布失败<br/>写明原因<br/>可以重新选这个平台提交"])
+  result -->|结果不确定| pending(["停在预发布中<br/>人工到平台核对，不自动重试<br/>服务重启时执行中的也停在这里"])
+  success -.-> publish("正式发布<br/>只有知乎实现了<br/>页面未开放")
+  class worker jobNode
+  class fail badNode
+  class success,xhsDone okNode
+  class pending warnNode
+  class publish todoNode
+  class skip noteNode
+  </script>
+</section>
+
+<section class="map" id="transfer">
+  <div class="head"><h2>数据导入导出</h2><span class="tag">基础配置</span></div>
+  <p class="caption">按项目把诊断链路迁移到另一个环境。导入总是新建一个项目副本，不覆盖已有项目；模型渠道按编码对应，密钥不随文件走。</p>
+  <div class="diagram"></div>
+  <script type="text/plain" class="diagram-source">
+flowchart LR
+  subgraph exportFlow ["导出"]
+    direction LR
+    exportStart(["选择项目导出"]) --> unfinished{"有没结束的<br/>任务或报告吗"}
+    unfinished -->|有| exportReject("拒绝导出<br/>等它们结束再导")
+    unfinished -->|没有| build("生成项目文件<br/>项目、方案、问题、方案渠道<br/>任务、诊断结果、报告、回答分析")
+    build --> download(["下载 JSON<br/>不含密钥、渠道连接配置<br/>不含内容优化和发布记录"])
+  end
+  subgraph importFlow ["导入"]
+    direction LR
+    importStart(["上传项目文件<br/>最大 50 MiB"]) --> fileOk{"格式、版本、字段、<br/>关联校验通过吗"}
+    fileOk -->|不通过| importReject("拒绝并说明原因")
+    fileOk -->|通过| channelOk{"目标环境有同编码的<br/>模型渠道吗"}
+    channelOk -->|缺少| missing("一次列出缺少的渠道编码<br/>先去模型配置补上")
+    channelOk -->|都有| copy("新建一个项目副本<br/>所有 ID 重新编号<br/>一个事务写完")
+    copy --> imported(["导入完成<br/>历史只供查看<br/>继续诊断要从方案新建任务"])
+  end
+  exportFlow -.->|拿到另一个环境| importFlow
+  class exportReject,importReject,missing badNode
+  class download,imported okNode
+  </script>
+</section>
+
+<section class="map" id="channel">
+  <div class="head"><h2>模型渠道</h2><span class="tag">基础配置 · 模型配置、模型列表</span></div>
+  <p class="caption">所有大模型调用都从这里取配置。方案里明确选的渠道用来被测（联网）；制题、判定、建议、内容优化等内部任务用分数最高的已启用渠道（不联网）。调用失败直接报错，不自动换模型。</p>
+  <div class="diagram"></div>
+  <script type="text/plain" class="diagram-source">
+flowchart LR
+  start(["模型配置"]) --> form("填写渠道<br/>编码、名称、接口地址<br/>模型、密钥、分数、输出上限")
+  form --> strategy("选择调用策略<br/>通用 Chat、通用 Responses<br/>或厂商策略<br/>页面给出该厂商的密钥获取页")
+  strategy --> valid{"策略存在、<br/>编码不重复吗"}
+  valid -->|否| reject("拒绝保存")
+  valid -->|是| saved("保存渠道<br/>密钥只在服务端<br/>编辑时留空就保留原密钥")
+  saved --> list("模型列表<br/>启用、停用、编辑、删除")
+  list -->|删除| inUse{"还有诊断方案<br/>在用吗"}
+  inUse -->|有| keep("不能删除")
+  inUse -->|没有| removed(["已删除"])
+  saved --> route{"调用时用<br/>哪个渠道"}
+  route -->|方案里明确选的| tested("被测模型<br/>诊断执行时联网搜索")
+  route -->|调用方没指定| fallback("默认渠道<br/>已启用里分数最高的<br/>制题、判定、建议、内容优化<br/>都不联网")
+  tested & fallback --> callOk{"调用成功吗"}
+  callOk -->|失败| noSwitch("直接报错<br/>不自动换模型")
+  callOk -->|成功| answer(["拿到回答<br/>引用只取接口返回的<br/>结构化数据"])
+  class tested,fallback llmNode
+  class reject,keep,noSwitch badNode
+  class answer okNode
+  </script>
+</section>
+
+<section class="map" id="browser-login">
+  <div class="head"><h2>浏览器登录管理</h2><span class="tag">基础配置</span></div>
+  <p class="caption">在服务器上的浏览器里登录各平台，保存登录态供预发布使用；每个平台只存一份登录态。</p>
+  <div class="diagram"></div>
+  <script type="text/plain" class="diagram-source">
+flowchart LR
+  start(["浏览器登录管理<br/>先看各平台登录状态<br/>只读已保存的，不访问平台"]) --> pick("选平台和登录方式<br/>扫码、短信或密码<br/>先同意平台协议")
+  pick --> openPage("服务器打开平台登录页<br/>把页面截图返回给弹窗")
+  openPage --> openOk{"打开成功吗"}
+  openOk -->|失败| openFail("提示原因<br/>附页面截图")
+  openOk -->|成功| method{"登录方式"}
+  method -->|扫码| scan("用手机扫截图里的二维码<br/>弹窗轮询扫码进度")
+  method -->|短信| sms("填手机号收验证码<br/>再填验证码")
+  method -->|密码| password("填账号密码<br/>密码不保存")
+  scan & sms & password --> result{"登录成功了吗"}
+  result -->|抖音要求身份验证| verify("选择验证方式<br/>填收到的验证码")
+  verify --> result
+  result -->|成功| saved(["保存登录态<br/>每个平台一份<br/>预发布时使用"])
+  result -->|取消或失败| cancel("关闭这次登录<br/>已保存的登录态不受影响")
+  saved -.-> check("检测<br/>用登录态访问平台账号接口<br/>可单个检测或批量检测")
+  check --> state{"检测结果"}
+  state -->|有效| loggedIn(["已登录"])
+  state -->|失效| expired(["已失效<br/>需要重新登录"])
+  state -->|网络或风控| unknown(["无法确认"])
+  class openFail,cancel,expired badNode
+  class saved,loggedIn okNode
+  class unknown warnNode
+  </script>
+</section>
+
+<section class="map" id="takeover">
+  <div class="head"><h2>浏览器人工接管</h2><span class="tag">全局能力 · 所有管理页都会弹出</span></div>
+  <p class="caption">后台在平台页面上遇到必须由人完成的验证（如拖滑块）时，把实时画面推到管理页，人在画面上直接操作。目前只用于预发布，接入的平台只有搜狐号。</p>
+  <div class="diagram"></div>
+  <script type="text/plain" class="diagram-source">
+flowchart LR
+  start(["后台任务正在操作平台页面<br/>目前用于预发布"]) --> detect{"页面上有安全验证吗<br/>只认实际核对过的特征"}
+  detect -->|没有| goOn(["继续原流程"])
+  detect -->|有| register("登记接管<br/>标题、原因<br/>最长等 10 分钟")
+  register --> poll("任意管理页每 3 秒查一次<br/>发现待接管就弹窗<br/>一次一条")
+  poll --> show("弹窗显示实时画面<br/>有人在看才截图")
+  show --> operate("在画面上点击、拖动、输入<br/>按原来的节奏回放到真实页面")
+  operate --> passed{"验证消失了吗"}
+  passed -->|还在| operate
+  passed -->|消失| finish(["接管完成，后台继续原流程<br/>搜狐号会写回登录态<br/>下次不用再验证"])
+  show -->|点放弃| abandon(["已放弃<br/>该平台记失败"])
+  register -->|10 分钟没完成| timeout(["超时<br/>该平台记失败"])
+  show -->|关掉窗口但没放弃| later("继续排队<br/>再打开任意管理页<br/>会重新弹出")
+  later --> poll
+  class finish okNode
+  class abandon,timeout badNode
+  class later warnNode
+  </script>
+</section>
+
+<section class="map" id="admin-login">
+  <div class="head"><h2>管理后台登录</h2><span class="tag">全局能力</span></div>
+  <p class="caption">管理后台只有一个账号，不提供注册；除登录页外的页面和接口都要先登录。</p>
+  <div class="diagram"></div>
+  <script type="text/plain" class="diagram-source">
+flowchart LR
+  visit(["打开页面或调用接口"]) --> logged{"已登录吗"}
+  logged -->|是| inside(["正常使用<br/>写操作要带跨站令牌"])
+  logged -->|否，调用接口| unauthorized(["返回 401"])
+  logged -->|否，打开页面| loginPage("跳到登录页")
+  loginPage --> submit("输入账号密码<br/>只有一个管理员账号<br/>来自环境变量")
+  submit --> locked{"这个 IP<br/>被锁了吗"}
+  locked -->|是| wait("锁定 15 分钟<br/>15 分钟内连续失败 5 次就锁")
+  locked -->|否| right{"账号密码<br/>对吗"}
+  right -->|对| inside
+  right -->|不对| wrong("登录失败<br/>失败次数加一")
+  wrong --> submit
+  class inside okNode
+  class unauthorized,wait,wrong badNode
+  </script>
+</section>
+
+</main>
+
+<footer>
+  依据文档：诊断方案设计与接口、诊断任务功能与接口、诊断报告全景、诊断地域报告-详细设计、内容优化与多平台投放执行链路与架构、平台登录与发布能力总览、浏览器人工接管框架-详细设计、项目数据迁移验收、大模型联网接入说明、HANDOFF。
+  图形由 Mermaid 在浏览器里绘制，需要联网加载脚本；离线时显示各图的 Mermaid 源码。
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js"></script>
+<script>
+  /**
+   * 渲染页面上的全部功能图：读取每个功能区块里的 Mermaid 源码，统一加上节点配色后画成 SVG。
+   * 节点配色只在这里定义一次，各图的源码只写 class 归类；单张图画不出来时在原位置显示错误和源码，不影响其他图。
+   */
+  (function () {
+    const CLASS_DEFS = [
+      "classDef jobNode fill:#1e3a37,stroke:#3fb3a2,stroke-width:1.5px,color:#e9f4f2",
+      "classDef llmNode fill:#352c50,stroke:#9d7fe0,stroke-width:1.5px,color:#efeaff",
+      "classDef okNode fill:#22402e,stroke:#4fb477,stroke-width:1.5px,color:#e6f4ea",
+      "classDef warnNode fill:#45391f,stroke:#d9a441,stroke-width:1.5px,color:#f6ecd6",
+      "classDef badNode fill:#47272b,stroke:#d0605e,stroke-width:1.5px,color:#f6e3e3",
+      "classDef todoNode fill:#24262b,stroke:#7c7f87,stroke-width:1.5px,stroke-dasharray:5 4,color:#a4a8b0",
+      "classDef noteNode fill:#202329,stroke:#4b5563,stroke-width:1px,color:#c3cad5"
+    ].join("\n");
+    const sections = Array.from(document.querySelectorAll("section.map"));
+
+    document.getElementById("fit-toggle").addEventListener("click", function () {
+      const fit = document.body.classList.toggle("fit");
+      this.textContent = fit ? "原始大小" : "适应窗口宽度";
+    });
+
+    // 脚本没加载到（离线或被拦截）时，直接显示源码，并在页首说明原因
+    if (!window.mermaid) {
+      const notice = document.createElement("p");
+      notice.className = "notice";
+      notice.textContent = "没有加载到 Mermaid 脚本（需要联网），下面显示的是各图的源码，可以贴到任何支持 Mermaid 的工具里查看。";
+      document.querySelector("header").after(notice);
+      sections.forEach(section => showSource(section, null));
+      document.body.dataset.rendered = "fallback";
+      return;
+    }
+
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: "base",
+      themeVariables: {
+        darkMode: true,
+        background: "#1b1b1f",
+        primaryColor: "#2b3b52",
+        primaryBorderColor: "#5a8fd8",
+        primaryTextColor: "#e9eef6",
+        secondaryColor: "#2b3b52",
+        tertiaryColor: "#1f2228",
+        mainBkg: "#2b3b52",
+        nodeBorder: "#5a8fd8",
+        lineColor: "#aab3c0",
+        textColor: "#d6dde8",
+        clusterBkg: "#20242b",
+        clusterBorder: "#3b414b",
+        titleColor: "#cfd6e1",
+        edgeLabelBackground: "#1b1b1f",
+        fontFamily: "\"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", system-ui, sans-serif",
+        fontSize: "14px"
+      },
+      themeCSS: ".edgeLabel, .edgeLabel p, .edgeLabel span { font-size: 12px; color: #aeb6c2; }",
+      flowchart: { curve: "basis", htmlLabels: true, useMaxWidth: false, nodeSpacing: 28, rankSpacing: 44, padding: 12, wrappingWidth: 420 }
+    });
+
+    renderAll();
+
+    /**
+     * 逐张渲染功能图；Mermaid 渲染时会临时挂载节点测量文字，逐张等待避免互相干扰。
+     */
+    async function renderAll() {
+      for (let index = 0; index < sections.length; index++) {
+        const section = sections[index];
+        const source = section.querySelector("script.diagram-source").textContent.trim();
+        try {
+          const { svg } = await mermaid.render("map-svg-" + index, source + "\n" + CLASS_DEFS);
+          section.querySelector(".diagram").innerHTML = svg;
+        } catch (error) {
+          showSource(section, "这张图没画出来：" + (error && error.message ? error.message : error));
+        }
+      }
+      document.body.dataset.rendered = "true";
+    }
+
+    /**
+     * 在图的位置显示源码；有错误信息时一并显示，便于修改源码。
+     * @param {HTMLElement} section 功能区块
+     * @param {string|null} message 错误信息，没有时为 null
+     */
+    function showSource(section, message) {
+      const target = section.querySelector(".diagram");
+      target.replaceChildren();
+      const pre = document.createElement("pre");
+      if (message) {
+        pre.className = "error";
+      }
+      pre.textContent = (message ? message + "\n\n" : "") + section.querySelector("script.diagram-source").textContent.trim();
+      target.append(pre);
+    }
+  })();
+</script>
+</body>
+</html>

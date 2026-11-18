@@ -36,20 +36,21 @@ public class ResultAnalyzer {
     /**
      * 分析一条诊断结果并保存：成功时写入品牌、观点、情感与来源，失败时写入原因与来源。
      *
-     * @param analysis      待分析记录
-     * @param project       项目资料
-     * @param publishedUrls 我方已发布内容链接
-     * @param channel       判定渠道
+     * @param analysis       待分析记录
+     * @param project        项目资料
+     * @param publishedUrls  我方已发布内容链接
+     * @param channel        判定渠道
+     * @param reportLanguage 报告语言，观点概括与维度名按此语言书写，原文片段不翻译
      */
     public void analyzeResult(GeoDiagnosisTaskResultAnalysisEntity analysis, JSONObject project, Set<String> publishedUrls,
-                              GeoLlmChannelEntity channel) {
+                              GeoLlmChannelEntity channel, String reportLanguage) {
         // 1. 规则归类来源，判定失败时也保留，供来源分析使用
         GeoDiagnosisTaskResultEntity result = geoDiagnosisTaskReportService.getTaskResult(analysis.getTaskResultId());
         JSONObject question = (JSONObject) diagnosisTaskSnapshots.parseSnapshot(result.getQuestionSnapshot());
         String sources = JSON.toJSONString(resultRuleAnalyzer.classifySources(result.getCitations(), project, publishedUrls), SerializerFeature.WriteMapNullValue);
         try {
-            // 2. 一次判定拿全部字段，原文片段校验在解析时完成
-            String prompt = resultJudgePrompt.buildPrompt(project, question, result.getAnswerText());
+            // 2. 一次判定拿全部字段，原文片段校验在解析时完成；判定只看回答原文，不联网
+            String prompt = resultJudgePrompt.buildPrompt(project, question, result.getAnswerText(), reportLanguage);
             String output = llmClient.query(new LLMQueryRequest(prompt), channel).getContent();
             ResultJudgePrompt.AnalysisResult judged = resultJudgePrompt.parseAnalysisResult(output, result.getAnswerText(), question.getString("brandScope"), project);
             // 3. 保存判定成功的结果

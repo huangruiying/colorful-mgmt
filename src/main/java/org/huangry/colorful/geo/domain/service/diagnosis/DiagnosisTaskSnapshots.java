@@ -20,10 +20,9 @@ import java.util.Map;
 import org.huangry.colorful.geo.infrastructure.client.llm.strategy.template.LLMStrategy;
 
 /**
- * 生成和读取诊断任务的配置快照。
- * 创建诊断任务时，冻结相关的配置。
+ * 诊断任务的配置快照：创建任务时冻结的项目、方案、问题及渠道配置，以及快照的读取入口。
  * <p>
- * 创建任务时冻结项目、方案、问题及渠道配置，供历史展示和执行前的配置比对使用。
+ * 快照供历史展示、执行前的渠道配置比对和报告统计使用，方案后续编辑不影响已创建的任务。
  * 显式选择快照字段以排除独立 API Key；地址去除认证、查询串和片段，完整地址仅保留摘要供变化比对。
  * 提供方案、问题、渠道快照的组装与 JSON 读取入口；持久化、模型调用和配置一致性判定由调用方负责。
  */
@@ -71,7 +70,8 @@ public class DiagnosisTaskSnapshots {
 
 	/**
 	 * 创建诊断任务时，冻结问题快照
-	 * 保存问题原文及分类，不把项目背景拼入被测问题。
+	 * 保存问题原文、分类、语言和地域，不把项目背景拼入被测问题；地域为空时保留空值，表示不分地域。
+	 * 早于地域功能创建的任务，快照里没有 region，读取方按不分地域处理。
 	 *
 	 * @param question 来源问题
 	 * @return 单题快照
@@ -80,7 +80,8 @@ public class DiagnosisTaskSnapshots {
 		JSONObject node = new JSONObject(true);
 		node.fluentPut("id", question.getId()).fluentPut("sortOrder", question.getSortOrder()).fluentPut("text", question.getQuestionText())
 				.fluentPut("source", question.getSource()).fluentPut("intent", question.getIntent())
-				.fluentPut("brandScope", question.getBrandScope()).fluentPut("language", question.getLanguage());
+				.fluentPut("brandScope", question.getBrandScope()).fluentPut("language", question.getLanguage())
+				.fluentPut("region", question.getRegion());
 		return node;
 	}
 

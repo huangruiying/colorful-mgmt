@@ -48,8 +48,10 @@ import java.util.stream.Collectors;
  *     <ul>
  *       <li>维度归一：把同义维度合并为统一名称，由 {@code DimensionPrompt} 组装提示词并解析，{@code ReportLlmAnalyzer} 调用模型；
  *           失败时保持原名，不阻断报告</li>
- *       <li>指标计算：{@code ReportSummarizer.buildSummary} 交给各页签汇总类（diagnosis/report 包）计算 ①–⑤ 的指标与 ⑥ 规则问题</li>
+ *       <li>指标计算：{@code ReportSummarizer.buildSummary} 交给各页签汇总类（diagnosis/report 包）计算 ①–⑤ 的指标、⑥ 规则问题，
+ *           以及 ⑦ 按问题地域分组的宣传状态、可见度与机会</li>
  *       <li>优化建议：{@code ReportLlmAnalyzer.generateAdvice} 调用一次模型，失败只记在 advice 上</li>
+ *       <li>地域提升策略：{@code ReportLlmAnalyzer.generateRegionStrategies} 每个有机会的地域调用一次模型，失败只记在该地域上</li>
  *     </ul>
  *   </li>
  *   <li>冻结：{@code GeoDiagnosisTaskReportService.finishReport} 把汇总 JSON 写入报告 summary 并标记 SUCCEEDED，
@@ -73,16 +75,17 @@ public class DiagnosisTaskReportBusiness {
     /**
      * 为一次诊断任务生成报告：创建报告与待判定记录后立即返回，后台执行器领取并判定。
      * @param diagnosisTaskId 要生成报告的诊断任务 ID（geo_diagnosis_task.id）
+     * @param reportLanguage 报告语言，可为空；为空或空白时为中文
      * @return 新建的报告，状态为 PENDING
-     * @throws IllegalArgumentException 未选择任务、任务未结束或全部失败、已有报告在生成、没有有效回答
+     * @throws IllegalArgumentException 未选择任务、报告语言超长、任务未结束或全部失败、已有报告在生成、没有有效回答
      * @throws NoSuchElementException 诊断任务不存在
      */
-    public DiagnosisTaskReportResponse createReport(long diagnosisTaskId) {
+    public DiagnosisTaskReportResponse createReport(long diagnosisTaskId, String reportLanguage) {
         // 页面未选择任务时传 0，按输入错误提示而不是“任务不存在”
         if (diagnosisTaskId <= 0) {
             throw new IllegalArgumentException("请选择诊断任务");
         }
-        GeoDiagnosisTaskReportEntity report = reportService.createReport(diagnosisTaskId);
+        GeoDiagnosisTaskReportEntity report = reportService.createReport(diagnosisTaskId, reportLanguage);
         return responses(List.of(report), false).get(0);
     }
 
@@ -165,7 +168,7 @@ public class DiagnosisTaskReportBusiness {
                     report.getStatus(),
                     new DiagnosisTaskReportResponse.ProgressResponse(counts[0] + counts[1] + counts[2], counts[0], counts[1], counts[2]),
                     report.getJudgeChannelSnapshot() == null ? null : (JSONObject) snapshots.parseSnapshot(report.getJudgeChannelSnapshot()),
-                    report.getPromptVersion(),
+                    report.getPromptVersion(), report.getReportLanguage(),
                     summary, summary == null ? null : ReportSummarizer.listMissingParts(summary),
                     report.getErrorMessage(), report.getCreatedAt(), report.getStartedAt(), report.getFinishedAt());
         }).toList();

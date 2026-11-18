@@ -165,10 +165,10 @@ public class DiagnosisTaskWorker {
 			long started = System.nanoTime();
 			LLMResponse response;
 			try {
-				// 3. 按冻结渠道校验当前配置，只发送本条问题，不携带背景或历史回答。
+				// 3. 按冻结渠道校验当前配置，只发送本条问题，不携带背景或历史回答；诊断要测模型联网后怎么回答，所以要求联网搜索。
 				var channel = service.confirmTaskChannel(sample);
 				String prompt = ((JSONObject) snapshots.parseSnapshot(sample.getQuestionSnapshot())).getString("text");
-				response = llmClient.query(new LLMQueryRequest(prompt), channel);
+				response = llmClient.query(LLMQueryRequest.withWebSearch(prompt), channel);
 				// 返回空白正文视为本次诊断失败，不把空回答保存为成功。
 				if (response == null || response.getContent().isBlank()) {
 					throw new LLMClientException("模型未返回有效回答");

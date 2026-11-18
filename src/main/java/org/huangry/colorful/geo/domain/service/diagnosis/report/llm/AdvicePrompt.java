@@ -30,9 +30,10 @@ public class AdvicePrompt {
      * 组装优化建议提示词。
      * @param project 任务快照中的项目资料，取名称与核心卖点
      * @param issues 规则发现的问题（id、title、channelName、metrics、evidence）
+     * @param reportLanguage 报告语言，发现与建议的文字按此语言书写
      * @return 发送给判定模型的完整提示词
      */
-    public String buildPrompt(JSONObject project, JSONArray issues) {
+    public String buildPrompt(JSONObject project, JSONArray issues, String reportLanguage) {
         return """
                 你是 GEO（生成式引擎优化）顾问。下面是对 AI 回答做诊断后，由程序按规则找出的问题，每个问题有编号、数字和回答原文证据。
                 请只依据这些问题写出主要发现和优化建议，不要引入问题里没有的事实。严格输出一个 JSON 对象，不要输出其他文字，不要使用 Markdown 代码块。
@@ -55,8 +56,9 @@ public class AdvicePrompt {
                    CORRECT_INFORMATION（纠正和统一信息）、IMPROVE_ACCESS（改善公开访问与检索）、ADD_THIRD_PARTY（补充第三方覆盖）。
                 4. evidenceStatus：结论直接来自回答原文用 ANSWER_STATED；原因或做法属于推测用 INFERRED。
                 5. 如果某道题本身不适合推荐目标，可以直接说明，不必强行给出提升建议。
+                6. findings 和 actions 的文字用%s书写。
                 """.formatted(project.getString("name"), project.getString("sellingPoints") == null ? "" : project.getString("sellingPoints"),
-                JSON.toJSONString(issues));
+                JSON.toJSONString(issues), reportLanguage);
     }
 
     /**

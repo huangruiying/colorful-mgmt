@@ -32,7 +32,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * 诊断报告持久化与状态流转；每次手动生成创建一份新报告，旧报告保留。
+ * 诊断报告的领域服务：报告与回答分析的持久化、状态流转，以及生成报告时读取所需数据；每次手动生成创建一份新报告，旧报告保留。
  * <p>状态：PENDING → RUNNING → SUCCEEDED / FAILED；单条分析：PENDING → SUCCEEDED / FAILED。
  * 只分析成功且未因输出上限截断的诊断结果；判定与汇总由后台执行器编排，本服务事务只覆盖数据库操作，不包含模型调用。</p>
  */
@@ -41,6 +41,10 @@ import java.util.stream.Collectors;
 public class GeoDiagnosisTaskReportService {
     /** 输出达到上限的结束原因；这类回答不完整，不纳入分析。 */
     private static final String TRUNCATED_FINISH_REASON = "length";
+    /** 未指定报告语言时使用中文；表字段默认值也是中文，供本字段加入前的报告和早期导出文件使用。 */
+    private static final String DEFAULT_REPORT_LANGUAGE = "中文";
+    /** 报告语言的长度上限，与表字段一致。 */
+    private static final int REPORT_LANGUAGE_MAX_LENGTH = 50;
 
     @Resource
     private GeoDiagnosisTaskReportDao reportDao;
@@ -60,18 +64,20 @@ public class GeoDiagnosisTaskReportService {
      * 为已结束的诊断任务创建一份待生成的报告，并为每条有效回答建立待判定记录；不调用模型，判定与汇总由 DiagnosisTaskReportWorker 后台完成。
      * <p>写入（同一事务，任一步失败整体回滚）：
      * <ul>
-     *   <li>geo_diagnosis_task_report：新增 1 条，status = PENDING，判定渠道与汇总留空；</li>
+     *   <li>geo_diagnosis_task_report：新增 1 条，status = PENDING，记下报告语言，判定渠道与汇总留空；</li>
      *   <li>geo_diagnosis_task_result_analysis：每条有效回答新增 1 条，status = PENDING，判定字段留空。</li>
      * </ul>
      * 有效回答：geo_diagnosis_task_result 中 status = SUCCEEDED 且结束原因不是 length（未被截断）。</p>
      * @param taskId 诊断任务 ID
+     * @param reportLanguage 报告语言，可为空；为空或空白时为中文，最多 50 字符
      * @return 回读后的新报告，状态为 PENDING
      * @throws NoSuchElementException 诊断任务不存在
-     * @throws IllegalArgumentException 任务未结束或全部失败、已有报告正在生成、没有可分析的有效回答
+     * @throws IllegalArgumentException 报告语言超长、任务未结束或全部失败、已有报告正在生成、没有可分析的有效回答
      */
     @Transactional
-    public GeoDiagnosisTaskReportEntity createReport(long taskId) {
-        // 1. 锁住诊断任务，与重新发起、后台领取及并发生成串行；只有全部成功或部分失败的任务才能分析
+    public GeoDiagnosisTaskReportEntity createReport(long taskId, String reportLanguage) {
+        // 1. 先确认报告语言，再锁住诊断任务，与重新发起、后台领取及并发生成串行；只有全部成功或部分失败的任务才能分析
+        String language = confirmReportLanguage(reportLanguage);
         GeoDiagnosisTaskEntity task = taskDao.selectOne(new LambdaQueryWrapper<GeoDiagnosisTaskEntity>()
                 .eq(GeoDiagnosisTaskEntity::getId, taskId).last("FOR UPDATE"));
         if (task == null) {
@@ -91,15 +97,33 @@ public class GeoDiagnosisTaskReportService {
         GeoDiagnosisTaskReportEntity report = new GeoDiagnosisTaskReportEntity();
         report.setTaskId(taskId);
         report.setStatus(DiagnosisTaskReportStatus.PENDING.name());
+        report.setReportLanguage(language);
         reportDao.insert(report);
         int analysisCount = analysisDao.insertPendingFromResults(report.getId(), taskId,
                 DiagnosisTaskResultStatus.SUCCEEDED.name(), TRUNCATED_FINISH_REASON, DiagnosisTaskResultAnalysisStatus.PENDING.name());
         if (analysisCount == 0) {
             throw new IllegalArgumentException("该诊断任务没有可分析的有效回答");
         }
-        log.info("诊断报告已创建 reportId={}, taskId={}, analysisCount={}", report.getId(), taskId, analysisCount);
+        log.info("诊断报告已创建 reportId={}, taskId={}, analysisCount={}, reportLanguage={}", report.getId(), taskId, analysisCount, language);
         // 4. 回读数据库生成的时间字段
         return reportDao.selectById(report.getId());
+    }
+
+    /**
+     * 确认报告语言：去首尾空白，未指定时用中文。
+     * @param reportLanguage 页面填写的报告语言，可为空
+     * @return 确定的报告语言
+     * @throws IllegalArgumentException 超过 50 字符
+     */
+    private String confirmReportLanguage(String reportLanguage) {
+        if (reportLanguage == null || reportLanguage.isBlank()) {
+            return DEFAULT_REPORT_LANGUAGE;
+        }
+        String language = reportLanguage.strip();
+        if (language.length() > REPORT_LANGUAGE_MAX_LENGTH) {
+            throw new IllegalArgumentException("报告语言最多 50 字符");
+        }
+        return language;
     }
 
     /**

@@ -16,12 +16,15 @@ import java.util.Map;
 /**
  * 诊断报告汇总入口：把报告的全部回答整理成统计事实，交给各页签的汇总类计算，拼成冻结到报告上的 summary。
  * <p>各页签分工：① ReportOverviewSummarizer，② ReportVisibilitySummarizer，③ ReportBrandSummarizer，④ ReportCompetitorSummarizer，
- * ⑤ ReportSourceSummarizer，⑥ 规则问题 ReportIssueSummarizer；⑥ 的建议文字由后台执行器调用模型生成。</p>
+ * ⑤ ReportSourceSummarizer，⑥ 规则问题 ReportIssueSummarizer，⑦ 地域报告 ReportRegionSummarizer；⑥ 的建议文字与 ⑦ 各地域的提升策略由后台执行器调用模型生成。</p>
  * <p>纯计算，不调用模型、不访问数据库；结果冻结到报告 summary，之后不随规则或数据变化重算。</p>
  */
 @Component
 public class ReportSummarizer {
-    /** 一份完整报告 summary 应有的全部部分；advice 由后台执行器在汇总后写入，其余由 buildSummary 产出。新增部分时只改这里。 */
+    /**
+     * 一份完整报告 summary 应有的全部部分；advice 由后台执行器在汇总后写入，其余由 buildSummary 产出。新增部分时只改这里。
+     * <p>⑦ 的 region 不在清单里：只有问题带地域的新报告才有内容，旧报告的 ⑦ 显示空，不提供补全。</p>
+     */
     public static final List<String> SUMMARY_PARTS = List.of("sample", "models", "strength", "reservations", "criteria", "concerns",
             "brand", "competitor", "source", "issues", "advice");
 
@@ -41,6 +44,8 @@ public class ReportSummarizer {
     private ReportSourceSummarizer reportSourceSummarizer;
     @Resource
     private ReportIssueSummarizer reportIssueSummarizer;
+    @Resource
+    private ReportRegionSummarizer reportRegionSummarizer;
 
     /**
      * 计算并组装冻结的汇总。
@@ -50,7 +55,8 @@ public class ReportSummarizer {
      * @param judgeChannel 判定渠道快照
      * @param promptVersion 判定提示词版本
      * @return 汇总 JSON：①② 使用 sample、models、strength、reservations、criteria、concerns；
-     *         ③ 品牌认知使用 brand，④ 竞品对比使用 competitor，⑤ 引用与内容使用 source，⑥ 使用 issues（advice 由后台执行器另行写入）
+     *         ③ 品牌认知使用 brand，④ 竞品对比使用 competitor，⑤ 引用与内容使用 source，⑥ 使用 issues（advice 由后台执行器另行写入）；
+     *         ⑦ 地域报告使用 region（各地域的 strategy 由后台执行器另行写入）
      */
     public JSONObject buildSummary(List<ReportAnswer> answers, JSONObject project, Map<String, String> dimensionMapping,
                                    JSONObject judgeChannel, String promptVersion) {
@@ -68,6 +74,8 @@ public class ReportSummarizer {
         summary.put("source", reportSourceSummarizer.buildSourceAnalysis(facts, judged, dimensionMapping));
         // 4. ⑥ 规则发现的问题：从上面算好的各部分里按阈值挑出问题并附证据，供模型写建议、页面查看证据
         summary.put("issues", reportIssueSummarizer.buildIssues(summary, judged));
+        // 5. ⑦ 地域报告：按问题地域分组，算宣传状态、可见度与机会；不分地域的回答不计入
+        summary.put("region", reportRegionSummarizer.buildRegionReport(facts, project, dimensionMapping));
         return summary;
     }
 
@@ -97,9 +105,10 @@ public class ReportSummarizer {
         boolean mentioned = resultRuleAnalyzer.containsAnyName(answer.result().getAnswerText(), targetNames) || target != null;
         // 来源归类在判定前由规则完成，判定失败的回答也有，因此不看判定状态
         JSONArray sources = answer.analysis().getSources() != null ? JSON.parseArray(answer.analysis().getSources()) : new JSONArray();
+        // 地域取自冻结的问题快照，早于地域功能的快照没有 region，按不分地域处理
         return new ReportAnswerFacts(answer, channel.getLong("id"), channel.getString("channelName"), channel.getString("modelName"),
                 answer.result().getQuestionSortOrder(), question.getString("text"), question.getString("brandScope"), question.getString("intent"),
-                judged, mentioned, target, brands,
+                question.getString("region"), judged, mentioned, target, brands,
                 resultRuleAnalyzer.isSearchPerformed(answer.result().getRawResponse(), answer.result().getCitations()), sources);
     }
 }

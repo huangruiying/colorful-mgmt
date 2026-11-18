@@ -24,8 +24,8 @@ import static org.huangry.colorful.geo.infrastructure.client.llm.tools.LLMJsonOu
  */
 @Component
 public class ResultJudgePrompt {
-    /** 判定提示词版本；提示词或输出格式变化时递增，记录在报告上说明判定口径。 */
-    public static final String PROMPT_VERSION = "v1";
+    /** 判定提示词版本；提示词或输出格式变化时递增，记录在报告上说明判定口径。v2：观点概括与维度名按报告语言书写。 */
+    public static final String PROMPT_VERSION = "v2";
     /** 观点概括与原文片段的保存长度上限。 */
     private static final int TEXT_LIMIT = 300;
     /** 品牌类型：目标、预设竞品、回答中新出现的同类产品。 */
@@ -48,9 +48,10 @@ public class ResultJudgePrompt {
      * @param project 任务快照中的项目资料
      * @param question 诊断结果中的问题快照，含 text、brandScope
      * @param answer 被判定的回答原文
+     * @param reportLanguage 报告语言，观点概括与维度名按此语言书写；原文片段、产品名不翻译
      * @return 发送给判定模型的完整提示词
      */
-    public String buildPrompt(JSONObject project, JSONObject question, String answer) {
+    public String buildPrompt(JSONObject project, JSONObject question, String answer, String reportLanguage) {
         String brandScope = question.getString("brandScope");
         StringBuilder prompt = new StringBuilder("""
                 你是 GEO（生成式引擎优化）分析助手。请只依据下面的“回答原文”做判定，不要使用你自己的知识评价任何品牌。
@@ -96,6 +97,10 @@ public class ResultJudgePrompt {
                 4. quote 摘取回答中最能支撑该观点的一句原文（不超过 80 字），逐字照抄，不得改写，不要跨段拼接多处内容；找不到原文依据的观点不要输出。
                 5. 没有适用内容的数组输出 []。
                 """);
+        // 3. 解析出来的文字按报告语言书写，原文与产品名保持原样，回答是外语时报告也不会中外文混排
+        prompt.append("6. points 的 content 和 dimension 用").append(reportLanguage)
+                .append("书写，回答是其他语言时也翻成").append(reportLanguage)
+                .append("；quote 保持回答原文的语言，不翻译；brands 的 name 保持回答或【预设竞品】中的写法。\n");
         return prompt.toString();
     }
 

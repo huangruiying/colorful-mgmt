@@ -12,7 +12,10 @@ import org.huangry.colorful.geo.infrastructure.repository.entity.*;
 import org.springframework.stereotype.Service;
 import java.util.*;
 
-/** 诊断方案接口编排；转换方案模型并生成候选，不启动诊断任务。 */
+/**
+ * 诊断方案页面的应用编排：方案的保存、查看、列表，以及生成母题和按地域改写候选问题。
+ * <p>负责请求与实体、实体与响应的显式转换；问题规则与落库交给领域服务，不启动诊断任务。</p>
+ */
 @Service
 public class DiagnosisPlanBusiness {
     @Resource
@@ -78,11 +81,36 @@ public class DiagnosisPlanBusiness {
         return pageQuery.toResponse(items, total);
     }
 
-    /** 候选仅返回给页面，不修改已保存方案或用户现有集合。 */
+    /**
+     * 按项目资料和本次地域生成一套母题，返回给页面逐个地域改写；不保存、不修改已保存方案或用户现有集合。
+     * @param request 项目、可选制题渠道、母题数量、母题语言与本次要改写到的地域
+     * @return 母题，地域为空；页面按地域改写后才成为候选
+     * @throws IllegalArgumentException 项目无效，或数量、语言、渠道编码、地域不合法，此时不调用模型
+     */
     public List<DiagnosisQuestion> generateQuestions(GenerateDiagnosisQuestionsRequest request) {
+        // 1. 项目资料是制题背景，缺失时不调用模型
         var project = request.projectId() == null ? null : projectService.getById(request.projectId());
         if (project == null) throw new IllegalArgumentException("请选择有效项目");
-        return questionGenerateService.generate(project, request.channelCode(), request.count(), request.language())
+        // 2. 交给制题服务生成母题，返回不落库
+        return questionGenerateService.generate(project, request.channelCode(), request.count(), request.language(), request.regions())
+                .stream().map(this::toQuestion).toList();
+    }
+
+    /**
+     * 把母题按一个地域改写成当地用户会问的问题，返回候选供页面审核，不保存、不修改用户现有集合。
+     * <p>页面每个地域行调用一次；同一批母题改写到多个地域时，候选总数为母题数 × 地域行数。</p>
+     * @param request 项目、可选制题渠道、目标地域、可选语言与母题
+     * @return 与母题一一对应的改写候选，带本次地域与语言
+     * @throws IllegalArgumentException 项目无效、未提供母题或其他请求字段不合法，此时不调用模型
+     */
+    public List<DiagnosisQuestion> localizeQuestions(LocalizeDiagnosisQuestionsRequest request) {
+        // 1. 项目资料是改写背景，缺失时不调用模型
+        var project = request.projectId() == null ? null : projectService.getById(request.projectId());
+        if (project == null) throw new IllegalArgumentException("请选择有效项目");
+        if (request.questions() == null) throw new IllegalArgumentException("请提供要改写的母题");
+        // 2. 母题显式转换为实体后交给制题服务改写，返回候选不落库
+        List<GeoDiagnosisPlanQuestionEntity> questions = request.questions().stream().map(this::toEntity).toList();
+        return questionGenerateService.localizeQuestions(project, request.channelCode(), request.region(), request.language(), questions)
                 .stream().map(this::toQuestion).toList();
     }
 
@@ -95,7 +123,12 @@ public class DiagnosisPlanBusiness {
                 planService.listQuestions(plan.getId()).stream().map(this::toQuestion).toList(), plan.getUpdatedAt());
     }
 
-    /** 输入枚举仅转换为受控数据库值，空项留给规则校验。 */
+    /**
+     * 接口问题转换为实体：输入枚举仅转换为受控数据库值，空项与地域格式留给规则校验。
+     * @param question 页面提交的问题或母题
+     * @return 未保存的问题实体
+     * @throws IllegalArgumentException 问题项为空
+     */
     private GeoDiagnosisPlanQuestionEntity toEntity(DiagnosisQuestion question) {
         if (question == null) throw new IllegalArgumentException("问题不能为空");
         var entity = new GeoDiagnosisPlanQuestionEntity();
@@ -104,14 +137,19 @@ public class DiagnosisPlanBusiness {
         entity.setIntent(question.intent() == null ? null : question.intent().name());
         entity.setBrandScope(question.brandScope() == null ? null : question.brandScope().name());
         entity.setLanguage(question.language());
+        entity.setRegion(question.region());
         return entity;
     }
 
-    /** 已校验的数据库值显式映射到接口枚举。 */
+    /**
+     * 已校验的数据库值显式映射到接口枚举，地域原样返回（空值表示不分地域）。
+     * @param entity 已保存或已校验的问题
+     * @return 接口问题
+     */
     private DiagnosisQuestion toQuestion(GeoDiagnosisPlanQuestionEntity entity) {
         return new DiagnosisQuestion(entity.getQuestionText(), DiagnosisQuestion.Source.valueOf(entity.getSource()),
                 DiagnosisQuestion.Intent.valueOf(entity.getIntent()), DiagnosisQuestion.BrandScope.valueOf(entity.getBrandScope()),
-                entity.getLanguage());
+                entity.getLanguage(), entity.getRegion());
     }
 
     /** 「诊断方案」页面列表的一行；不携带问题正文或任何模型密钥。 */

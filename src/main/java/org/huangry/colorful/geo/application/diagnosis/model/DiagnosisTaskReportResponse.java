@@ -28,6 +28,8 @@ public record DiagnosisTaskReportResponse(
         JSONObject judgeChannel,
         /** 判定提示词版本。 */
         String promptVersion,
+        /** 报告语言：解析出来的观点概括、维度名、建议与地域策略用此语言书写，问题、回答、引用等原文不翻译。 */
+        String reportLanguage,
         /** 冻结的汇总指标，只在详情且报告完成后返回。 */
         JSONObject summary,
         /** 汇总缺少的部分，只在详情且报告完成后返回；不为空时页面提供“补全报告”。 */

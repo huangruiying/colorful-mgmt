@@ -43,16 +43,18 @@ public class DimensionPrompt {
 
     /**
      * 组装维度归一提示词：要求模型把含义相同的维度合并为统一名称，只输出“原名称 → 归一名称”的 JSON。
+     * <p>归一名称按报告语言书写；原名称混有其他语言时一并翻成报告语言，同义维度才能合并到同一行排行。</p>
      * @param dimensions 待归一的维度名
+     * @param reportLanguage 报告语言
      * @return 提示词
      */
-    public String buildPrompt(Collection<String> dimensions) {
+    public String buildPrompt(Collection<String> dimensions, String reportLanguage) {
         return """
-                下面是从多条 AI 回答中提取的维度名称（用户选择标准、顾虑、产品优缺点、推荐理由、比较维度等），存在同义或近义写法。
-                请把含义相同的维度合并为一个简短、通用的中文名称（2 到 6 个字），含义不同的保持分开。
+                下面是从多条 AI 回答中提取的维度名称（用户选择标准、顾虑、产品优缺点、推荐理由、比较维度等），存在同义或近义写法，也可能混有不同语言。
+                请把含义相同的维度合并为一个简短、通用的名称，用%s书写（中文 2 到 6 个字，其他语言 1 到 3 个词），含义不同的保持分开。
                 严格输出一个 JSON 对象，键为原名称（必须逐字使用下面列出的名称），值为归一后的名称，不要输出其他文字。
 
-                """ + String.join("\n", dimensions);
+                """.formatted(reportLanguage) + String.join("\n", dimensions);
     }
 
     /**
