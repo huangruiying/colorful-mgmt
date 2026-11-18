@@ -42,7 +42,7 @@ import static org.mockito.Mockito.*;
 
 /**
  * 报告两段编排：冻结默认判定渠道；判定段逐条判定，有失败就暂停、全部成功才进入第 2 段；
- * 第 2 段四步跑完再看结果，全部成功则完成，有失败保存内容并暂停；不连接数据库与模型。
+ * 第 2 段四步跑完再看结果，全部成功则完成，有失败保存内容并暂停，每步的进度随时写出；不连接数据库与模型。
  */
 class DiagnosisReportWorkerTest {
     private final DiagnosisReportWorker worker = new DiagnosisReportWorker();
@@ -95,12 +95,12 @@ class DiagnosisReportWorkerTest {
             JSONObject advice = JSON.parseObject(summary).getJSONObject("advice");
             return advice.getString("status").equals("SUCCEEDED") && advice.getJSONArray("findings").size() == 1
                     && advice.getJSONArray("actions").getJSONObject(0).getString("title").equals("补充场景内容");
-        }));
+        }), anyString());
         verify(service, never()).updateReportPaused(anyLong(), any());
-        verify(service, never()).updateReportContentPaused(anyLong(), any(), any());
+        verify(service, never()).updateReportContentPaused(anyLong(), any(), any(), any());
     }
 
-    /** 第 2 段每个有机会的地域调用一次模型写提升策略，随内容一起冻结；建议与策略都按报告语言书写，且不联网。 */
+    /** 第 2 段每个有机会的地域调用一次模型写提升策略，随内容一起冻结；写之前报出地域进度，结束时四步的结果随内容写入；建议与策略按报告语言书写且不联网。 */
     @Test
     void shouldFreezeRegionStrategiesWithContent() {
         when(service.findNextPendingAnalysis(9L)).thenReturn(null);
@@ -112,7 +112,13 @@ class DiagnosisReportWorkerTest {
         ReflectionTestUtils.invokeMethod(worker, "generate", report("JUDGE"));
 
         verify(service).finishReport(eq(9L), argThat(saved -> JSON.parseObject(saved).getJSONObject("region").getJSONArray("regions")
-                .getJSONObject(0).getJSONObject("strategy").getString("status").equals("SUCCEEDED")));
+                .getJSONObject(0).getJSONObject("strategy").getString("status").equals("SUCCEEDED")),
+                argThat(progress -> describe(progress).equals(List.of("DIMENSION:SKIPPED:没有需要合并的维度", "SUMMARY:SUCCEEDED:规则问题 1 个，地域 1 个",
+                        "ADVICE:SUCCEEDED", "REGION_STRATEGY:SUCCEEDED:共 1 个地域"))));
+        var progressUpdates = ArgumentCaptor.forClass(String.class);
+        verify(service, atLeastOnce()).updateReportContentProgress(eq(9L), progressUpdates.capture());
+        assertTrue(progressUpdates.getAllValues().stream().anyMatch(progress -> describe(progress).get(3).equals("REGION_STRATEGY:RUNNING:0 / 1")));
+        assertTrue(progressUpdates.getAllValues().stream().anyMatch(progress -> describe(progress).get(2).equals("ADVICE:RUNNING")));
         var requests = ArgumentCaptor.forClass(LLMQueryRequest.class);
         verify(llmClient, times(2)).query(requests.capture(), same(channel));
         assertTrue(requests.getAllValues().stream().allMatch(request -> request.prompt().contains("用英语书写") && !request.enableWebSearch()));
@@ -131,8 +137,9 @@ class DiagnosisReportWorkerTest {
             JSONObject content = JSON.parseObject(saved);
             return content.getJSONObject("advice").getString("status").equals("FAILED") && content.getJSONObject("region")
                     .getJSONArray("regions").getJSONObject(0).getJSONObject("strategy").getString("status").equals("FAILED");
-        }), eq("写优化建议失败；写地域策略失败：美国"));
-        verify(service, never()).finishReport(anyLong(), any());
+        }), eq("写优化建议失败；写地域策略失败：美国（共 1 个地域）"),
+                argThat(progress -> describe(progress).subList(2, 4).equals(List.of("ADVICE:FAILED", "REGION_STRATEGY:FAILED:美国（共 1 个地域）"))));
+        verify(service, never()).finishReport(anyLong(), any(), any());
     }
 
     /** 维度归一失败：维度保持原名继续统计和写建议，内容保存后暂停在第 2 段，原因写明合并同义维度失败。 */
@@ -147,11 +154,12 @@ class DiagnosisReportWorkerTest {
 
         verify(summarizer).buildSummary(any(), any(), eq(Map.of("价格偏高", "价格偏高")), any(), any());
         verify(service).updateReportContentPaused(eq(9L),
-                argThat(saved -> JSON.parseObject(saved).getJSONObject("advice").getString("status").equals("SUCCEEDED")), eq("合并同义维度失败"));
-        verify(service, never()).finishReport(anyLong(), any());
+                argThat(saved -> JSON.parseObject(saved).getJSONObject("advice").getString("status").equals("SUCCEEDED")), eq("合并同义维度失败：维度保持原名"),
+                argThat(progress -> describe(progress).get(0).equals("DIMENSION:FAILED:维度保持原名")));
+        verify(service, never()).finishReport(anyLong(), any(), any());
     }
 
-    /** 第 2 段出现程序异常（统计出错）：不保存内容、不再调用模型，暂停等修复后重新生成，避免轮询反复重跑。 */
+    /** 第 2 段出现程序异常（统计出错）：出错的那一步记为失败、后面的保持未开始，不保存内容、不再调用模型，暂停等修复后重新生成。 */
     @Test
     void shouldPauseWithoutContentWhenContentGenerationThrows() {
         when(service.loadAnswers(9L)).thenReturn(List.of(new ReportAnswer(succeeded(), new GeoDiagnosisTaskResultEntity())));
@@ -159,8 +167,10 @@ class DiagnosisReportWorkerTest {
 
         ReflectionTestUtils.invokeMethod(worker, "generate", report("CONTENT"));
 
-        verify(service).updateReportContentPaused(9L, null, "报告内容生成出错，请联系管理员修复后重新生成报告内容");
-        verify(service, never()).finishReport(anyLong(), any());
+        verify(service).updateReportContentPaused(eq(9L), isNull(), eq("报告内容生成出错，请联系管理员修复后重新生成报告内容"),
+                argThat(progress -> describe(progress).equals(List.of("DIMENSION:SKIPPED:没有需要合并的维度", "SUMMARY:FAILED:程序出错",
+                        "ADVICE:PENDING", "REGION_STRATEGY:PENDING"))));
+        verify(service, never()).finishReport(anyLong(), any(), any());
         verify(llmClient, never()).query(any(), any());
     }
 
@@ -175,7 +185,7 @@ class DiagnosisReportWorkerTest {
 
         verify(service, never()).findNextPendingAnalysis(anyLong());
         verify(service, never()).updateReportStageContent(anyLong());
-        verify(service).finishReport(eq(9L), any());
+        verify(service).finishReport(eq(9L), any(), any());
     }
 
     /** 没有已启用渠道时暂停在判定段，配好渠道后由用户重试；不进入判定，也不把报告标为失败。 */
@@ -240,6 +250,16 @@ class DiagnosisReportWorkerTest {
         result.setQuestionSnapshot("{\"text\":\"问题\",\"brandScope\":\"NON_BRAND\"}");
         when(service.getTaskResult(anyLong())).thenReturn(result);
         when(analysisPrompt.buildPrompt(any(), any(), any(), any())).thenReturn("判定提示词");
+    }
+
+    /**
+     * @param progress 写入 content_progress 的 JSON
+     * @return 按执行顺序，每步写成“key:status”或“key:status:detail”
+     */
+    private List<String> describe(String progress) {
+        return JSON.parseObject(progress).getJSONArray("steps").stream().map(JSONObject.class::cast)
+                .map(step -> step.getString("key") + ":" + step.getString("status") + (step.containsKey("detail") ? ":" + step.getString("detail") : ""))
+                .toList();
     }
 
     /** @return 只含一个规则问题 P1 的内容，⑦ 没有地域 */

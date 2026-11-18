@@ -193,6 +193,7 @@ CREATE TABLE IF NOT EXISTS geo_diagnosis_report (
     prompt_version VARCHAR(50) NULL COMMENT '判定提示词版本',
     report_language VARCHAR(50) NOT NULL DEFAULT '中文' COMMENT '报告解析内容的语言；问题、回答、引用等原文不翻译',
     summary JSON NULL COMMENT '报告内容（汇总指标、主要发现、优化建议与地域策略），第 2 段结束时写入，完成后冻结',
+    content_progress JSON NULL COMMENT '第 2 段四个子步骤的状态与说明，执行中逐步更新，只用于页面显示',
     error_message VARCHAR(1000) NULL COMMENT '脱敏后的暂停或失败原因',
     started_at DATETIME(3) NULL,
     finished_at DATETIME(3) NULL,

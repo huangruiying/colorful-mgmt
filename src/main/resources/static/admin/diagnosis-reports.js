@@ -1,6 +1,6 @@
 "use strict";
 /**
- * 诊断报告页：报告列表、生成报告、报告详情（两段进度、暂停后的重试与忽略失败继续、已完成报告的重跑、各页签及 ⑦ 的地域子页签、按模型筛选）、
+ * 诊断报告页：报告列表、生成报告、报告详情（两段进度及第 2 段子步骤、暂停后的重试与忽略失败继续、已完成报告的重跑、各页签及 ⑦ 的地域子页签、按模型筛选）、
  * 证据与回答弹窗，以及导出网页按钮。
  * <p>页签内容由 DiagnosisReportView（diagnosis-report-view.js）渲染，导出网页由 DiagnosisReportExport（diagnosis-report-export.js）组装；
  * 本文件负责页面状态、接口读取、弹窗与轮询的生命周期。</p>
@@ -19,6 +19,11 @@
     // 两段的顺序与各段状态的文字；段名取自 DiagnosisReportView.stageLabels
     const STAGES = Object.freeze(["JUDGE", "CONTENT"]);
     const stageStateLabels = Object.freeze({idle:"未开始", queued:"排队中", running:"进行中", paused:"已暂停", failed:"失败", done:"已完成"});
+    // 第 2 段的四个子步骤、各自状态的文字与样式；与后端 DiagnosisReportContentProgress 一致
+    const CONTENT_STEPS = Object.freeze(["DIMENSION", "SUMMARY", "ADVICE", "REGION_STRATEGY"]);
+    const contentStepLabels = Object.freeze({DIMENSION:"合并同义维度", SUMMARY:"统计 ①–⑦", ADVICE:"写优化建议", REGION_STRATEGY:"写地域策略"});
+    const contentStepStatusLabels = Object.freeze({PENDING:"未开始", RUNNING:"进行中", SUCCEEDED:"完成", FAILED:"失败", SKIPPED:"无需执行"});
+    const contentStepStates = Object.freeze({PENDING:"idle", RUNNING:"running", SUCCEEDED:"done", FAILED:"failed", SKIPPED:"skipped"});
     // 已完成报告重跑前的确认文字
     const RERUN_CONFIRM = "重跑期间报告不能查看，跑完会重新生成报告内容并替换现有内容。确定重跑吗？";
     // 按模型筛选：空字符串为全部模型；只作用于按模型分行的表格，排行与清单是全部模型合计
@@ -91,11 +96,30 @@
     }
 
     /**
-     * @param {{status:string, stage:string}} item 报告
-     * @return {HTMLElement[]} 生成中或已暂停时注明所在段，其他状态不显示
+     * @param {{status:string, stage:string, contentProgress:object}} item 报告
+     * @return {HTMLElement[]} 生成中或已暂停时注明所在段，第 2 段生成中再带上当前子步骤；其他状态不显示
      */
     function stageNote(item) {
-        return item.status === "RUNNING" || item.status === "PAUSED" ? [element("span", "task-secondary", view.stageLabels[item.stage])] : [];
+        if (item.status !== "RUNNING" && item.status !== "PAUSED") return [];
+        const running = item.stage === "CONTENT" ? contentSteps(item).find(step => step.status === "RUNNING") : null;
+        return [element("span", "task-secondary", view.stageLabels[item.stage] + (running ? " · " + contentStepText(running) : ""))];
+    }
+
+    /**
+     * @param {{contentProgress:object}} item 报告
+     * @return {{key:string, status:string, detail:string}[]} 第 2 段四个子步骤，按执行顺序；没有进度时都按未开始
+     */
+    function contentSteps(item) {
+        const steps = item.contentProgress?.steps || [];
+        return CONTENT_STEPS.map(key => steps.find(step => step.key === key) || {key, status:"PENDING"});
+    }
+
+    /**
+     * @param {{key:string, detail:string}} step 一个子步骤
+     * @return {string} 子步骤名称加说明，如“写地域策略 2 / 4”
+     */
+    function contentStepText(step) {
+        return (contentStepLabels[step.key] || step.key) + (step.detail ? " " + step.detail : "");
     }
 
     /**
@@ -213,6 +237,7 @@
         const panel = byId("report-panel");
         panel.replaceChildren();
         if (report.status !== "SUCCEEDED") panel.append(stageProgress(), statusNote());
+        else panel.append(...ignoredFailureNote());
         if (!report.summary) return;
         if (modelFilter) panel.append(view.buildModelFilterNote(selectedModelName()));
         view.renderTab({modelFilter, entries:pageEntries}, panel, activeTab, report.summary);
@@ -220,7 +245,7 @@
         if (activeSubtab != null) panel.querySelectorAll("[data-subtab-group]").forEach(group => view.selectSubtab(group, activeSubtab));
     }
 
-    /** @return {HTMLElement} 两段进度：① 判定每条回答 → ② 生成报告内容，各段标出状态，判定段附带已判定条数 */
+    /** @return {HTMLElement} 两段进度：① 判定每条回答 → ② 生成报告内容，各段标出状态，判定段附带已判定条数，第 2 段列出四个子步骤 */
     function stageProgress() {
         const box = element("div", "report-stages");
         STAGES.forEach((stage, index) => {
@@ -229,6 +254,7 @@
             node.dataset.state = state;
             const judged = stage === "JUDGE" ? " · 已判定 " + progressText(report.progress) : "";
             node.append(element("strong", null, (index + 1) + " " + view.stageLabels[stage]), element("span", null, stageStateLabels[state] + judged));
+            if (stage === "CONTENT") node.append(contentStepList());
             box.append(node);
         });
         return box;
@@ -244,6 +270,27 @@
         if (report.status === "SUCCEEDED" || index < current) return "done";
         if (index > current) return "idle";
         return {PENDING:"queued", RUNNING:"running", PAUSED:"paused", FAILED:"failed"}[report.status];
+    }
+
+    /** @return {HTMLElement} 第 2 段四个子步骤的状态与说明，生成中随详情轮询刷新 */
+    function contentStepList() {
+        const list = element("ol", "report-substeps");
+        for (const step of contentSteps(report)) {
+            const item = element("li");
+            item.dataset.state = contentStepStates[step.status] || "idle";
+            item.append(element("span", "report-substep-state", contentStepStatusLabels[step.status] || step.status),
+                element("span", "report-substep-name", contentStepLabels[step.key] || step.key));
+            if (step.detail) item.append(element("span", "report-substep-detail", step.detail));
+            list.append(item);
+        }
+        return list;
+    }
+
+    /** @return {HTMLElement[]} 已完成的报告在第 2 段有步骤失败、是忽略失败继续完成的，写明哪几步失败；否则不显示 */
+    function ignoredFailureNote() {
+        const failures = contentSteps(report).filter(step => step.status === "FAILED")
+            .map(step => (contentStepLabels[step.key] || step.key) + "失败" + (step.detail ? "：" + step.detail : ""));
+        return failures.length ? [element("p", "report-filter-note", "这份报告生成时有步骤失败，已忽略继续：" + failures.join("；") + "。")] : [];
     }
 
     /** @return {HTMLElement} 未完成报告的状态说明：失败或暂停时写明原因与可选操作，排队和生成中时说明后台在做什么 */

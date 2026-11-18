@@ -39,27 +39,37 @@ class TacticGeneratorTest {
         assertEquals("优化建议生成失败，可先查看规则发现的问题", advice.getString("errorMessage"));
     }
 
-    /** 每个有机会的地域调用一次模型；某个地域失败只影响该地域并返回其名称，没有机会的地域不调用模型、不算失败。 */
+    /** 每个有机会的地域调用一次模型；某个地域失败只影响该地域，没有机会的地域不调用模型，记为无需执行而不是失败。 */
     @Test
     void shouldGenerateStrategyPerRegionAndIsolateFailures() {
         when(llmClient.query(any(), same(channel)))
                 .thenReturn(new LLMResponse("{\"mentionPlays\":[{\"title\":\"进入推荐清单\",\"steps\":[\"发测评\"],\"evidenceStatus\":\"INFERRED\",\"opportunityIds\":[\"R1-O1\"]}]}", List.of()))
                 .thenThrow(new LLMClientException("调用失败"));
-        JSONObject regionReport = JSON.parseObject("""
-                {"regions":[{"name":"美国","portrayal":{},"opportunities":[{"id":"R1-O1"}]},
-                            {"name":"德国","portrayal":{},"opportunities":[{"id":"R2-O1"}]},
-                            {"name":"日本","portrayal":{},"opportunities":[]}]}""");
+        JSONArray regions = JSON.parseArray("""
+                [{"name":"美国","portrayal":{},"opportunities":[{"id":"R1-O1"}]},
+                 {"name":"德国","portrayal":{},"opportunities":[{"id":"R2-O1"}]},
+                 {"name":"日本","portrayal":{},"opportunities":[]}]""");
+        JSONObject project = new JSONObject().fluentPut("name", "Olight");
 
-        List<String> failedRegions = generator.generateRegionStrategies(regionReport, new JSONObject().fluentPut("name", "Olight"), channel, 9L, "中文");
+        JSONObject usa = generator.generateRegionStrategy(regions.getJSONObject(0), project, channel, 9L, "中文");
+        JSONObject germany = generator.generateRegionStrategy(regions.getJSONObject(1), project, channel, 9L, "中文");
+        JSONObject japan = generator.generateRegionStrategy(regions.getJSONObject(2), project, channel, 9L, "中文");
 
-        JSONArray regions = regionReport.getJSONArray("regions");
-        JSONObject usa = regions.getJSONObject(0).getJSONObject("strategy");
         assertEquals("SUCCEEDED", usa.getString("status"));
         assertEquals("进入推荐清单", usa.getJSONArray("mentionPlays").getJSONObject(0).getString("title"));
-        assertEquals("FAILED", regions.getJSONObject(1).getJSONObject("strategy").getString("status"));
-        assertEquals("NO_OPPORTUNITIES", regions.getJSONObject(2).getJSONObject("strategy").getString("status"));
+        assertTrue(TacticGenerator.isFailed(germany) && !TacticGenerator.isSkipped(germany));
+        assertTrue(TacticGenerator.isSkipped(japan) && !TacticGenerator.isFailed(japan));
+        assertFalse(TacticGenerator.isFailed(usa) || TacticGenerator.isSkipped(usa));
         verify(llmClient, times(2)).query(any(), same(channel));
-        assertEquals(List.of("德国"), failedRegions);
+    }
+
+    /** 没有规则问题的建议算无需执行，不算失败。 */
+    @Test
+    void shouldTreatAdviceWithoutIssuesAsSkipped() {
+        JSONObject advice = generator.generateAdvice(new JSONArray(), new JSONObject(), channel, 9L, "中文");
+
+        assertTrue(TacticGenerator.isSkipped(advice));
+        assertFalse(TacticGenerator.isFailed(advice));
     }
 
     /** @return 使用真实提示词组件与模型替身的建议与策略生成 */

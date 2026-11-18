@@ -159,7 +159,7 @@ class GeoDiagnosisReportServiceTest {
             var analysisUpdate = ArgumentCaptor.forClass(Wrapper.class);
             verify(analyses).update(isNull(), analysisUpdate.capture());
             assertSets(analysisUpdate.getValue(), "status", "PENDING", "error_message", null, "sources", null);
-            assertSets(captureReportUpdate(), "stage", "JUDGE", "status", "PENDING", "error_message", null, "finished_at", null);
+            assertSets(captureReportUpdate(), "stage", "JUDGE", "status", "PENDING", "error_message", null, "finished_at", null, "content_progress", null);
             verify(tasks).selectOne(any());
         }
     }
@@ -195,7 +195,7 @@ class GeoDiagnosisReportServiceTest {
 
             service.regenerateReportContent(9L);
 
-            assertSets(captureReportUpdate(), "stage", "CONTENT", "status", "PENDING", "error_message", null, "finished_at", null);
+            assertSets(captureReportUpdate(), "stage", "CONTENT", "status", "PENDING", "error_message", null, "finished_at", null, "content_progress", null);
         }
         reset(reports, tasks);
         arrangeRequeue(report("PAUSED", "JUDGE", null));
@@ -212,7 +212,7 @@ class GeoDiagnosisReportServiceTest {
 
         service.skipReportFailures(9L);
 
-        assertSets(captureReportUpdate(), "stage", "CONTENT", "status", "PENDING", "error_message", null, "finished_at", null);
+        assertSets(captureReportUpdate(), "stage", "CONTENT", "status", "PENDING", "error_message", null, "finished_at", null, "content_progress", null);
         reset(reports);
         arrangeRequeue(report("PAUSED", "JUDGE", null));
         when(analyses.exists(any())).thenReturn(false);
@@ -238,6 +238,25 @@ class GeoDiagnosisReportServiceTest {
             assertThrows(IllegalArgumentException.class, () -> service.skipReportFailures(9L));
             verify(reports, never()).update(isNull(), any());
         }
+    }
+
+    /** 第 2 段进度只写生成中、停在第 2 段的报告；完成与暂停时进度随结果一起写入。 */
+    @Test
+    void shouldWriteContentProgressOnlyWithStageTwoState() {
+        service.updateReportContentProgress(9L, "{\"steps\":[]}");
+        var progressUpdate = (LambdaUpdateWrapper<?>) captureReportUpdate();
+        assertSets(progressUpdate, "content_progress", "{\"steps\":[]}");
+        assertTrue(progressUpdate.getParamNameValuePairs().values().containsAll(List.of("RUNNING", "CONTENT")));
+
+        reset(reports);
+        service.finishReport(9L, "{}", "{\"steps\":[1]}");
+        Map<String, Object> finished = setValues(captureReportUpdate());
+        assertEquals(List.of("SUCCEEDED", "{}", "{\"steps\":[1]}"), List.of(finished.get("status"), finished.get("summary"), finished.get("content_progress")));
+        assertNotNull(finished.get("finished_at"));
+
+        reset(reports);
+        service.updateReportContentPaused(9L, null, "写优化建议失败", "{\"steps\":[2]}");
+        assertSets(captureReportUpdate(), "status", "PAUSED", "summary", null, "error_message", "写优化建议失败", "content_progress", "{\"steps\":[2]}");
     }
 
     /** 判定失败按原因计数并保持数量顺序，没有记录原因的计为“原因未记录”。 */

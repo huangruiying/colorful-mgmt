@@ -30,11 +30,13 @@ class DiagnosisReportBusinessTest {
     private final GeoDiagnosisReportResultAnalysisDao analyses = mock(GeoDiagnosisReportResultAnalysisDao.class);
     private final GeoDiagnosisTaskDao tasks = mock(GeoDiagnosisTaskDao.class);
 
-    /** 列表按报告汇总判定进度，名称来自任务快照，不返回冻结汇总。 */
+    /** 列表按报告汇总判定进度并带上第 2 段子步骤进度，名称来自任务快照，不返回报告内容。 */
     @Test
     void shouldListReportsWithProgressAndWithoutSummary() {
         when(reports.selectCount(any())).thenReturn(1L);
-        when(reports.selectList(any())).thenReturn(List.of(report("RUNNING", "CONTENT", "{\"models\":[]}")));
+        var running = report("RUNNING", "CONTENT", "{\"models\":[]}");
+        running.setContentProgress("{\"steps\":[{\"key\":\"DIMENSION\",\"status\":\"RUNNING\"}]}");
+        when(reports.selectList(any())).thenReturn(List.of(running));
         when(analyses.countStatuses(List.of(9L))).thenReturn(List.of(
                 Map.of("report_id", 9L, "status", "PENDING", "analysis_count", 2L),
                 Map.of("report_id", 9L, "status", "SUCCEEDED", "analysis_count", 5L),
@@ -52,6 +54,7 @@ class DiagnosisReportBusinessTest {
         assertEquals(1, item.progress().failed());
         assertNull(item.summary());
         assertEquals("CONTENT", item.stage());
+        assertEquals("RUNNING", item.contentProgress().getJSONArray("steps").getJSONObject(0).getString("status"));
         assertEquals("qwen-plus", item.judgeChannel().getString("modelName"));
     }
 

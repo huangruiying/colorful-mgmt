@@ -72,19 +72,21 @@ class ProjectInfoImportExportServiceTest {
         assertEquals(2, target.jdbc.queryForObject("SELECT COUNT(*) FROM geo_project_info", Integer.class));
     }
 
-    /** 问题地域、报告语言与报告所在段随导出导入保留；已暂停的报告不会被后台自动领取，可以导出导入。 */
+    /** 问题地域、报告语言、报告所在段与第 2 段进度随导出导入保留；已暂停的报告不会被后台自动领取，可以导出导入。 */
     @Test
     void shouldCarryQuestionRegionAndReportLanguageThroughExportAndImport() throws Exception {
         Fixture source = createFixture();
         seedProject(source, true);
         source.jdbc.update("UPDATE geo_diagnosis_plan_question SET region = '美国' WHERE id = 30");
-        source.jdbc.update("UPDATE geo_diagnosis_report SET report_language = '英语', status = 'PAUSED', stage = 'CONTENT'");
+        source.jdbc.update("UPDATE geo_diagnosis_report SET report_language = '英语', status = 'PAUSED', stage = 'CONTENT', "
+                + "content_progress = '{\"steps\":[{\"key\":\"ADVICE\",\"status\":\"FAILED\"}]}'");
         Fixture target = createFixture();
         target.business.importProject(source.business.exportProject(10));
         assertEquals("美国", target.jdbc.queryForObject("SELECT region FROM geo_diagnosis_plan_question", String.class));
         assertEquals("英语", target.jdbc.queryForObject("SELECT report_language FROM geo_diagnosis_report", String.class));
         assertEquals("PAUSED", target.jdbc.queryForObject("SELECT status FROM geo_diagnosis_report", String.class));
         assertEquals("CONTENT", target.jdbc.queryForObject("SELECT stage FROM geo_diagnosis_report", String.class));
+        assertTrue(target.jdbc.queryForObject("SELECT content_progress FROM geo_diagnosis_report", String.class).contains("\"FAILED\""));
     }
 
     /** 地域、报告语言和报告所在段加入之前导出的文件没有这几列，仍可导入：地域为空即不分地域，报告语言与所在段由表默认值记为中文、判定段。 */
@@ -94,13 +96,14 @@ class ProjectInfoImportExportServiceTest {
         seedProject(source, true);
         ObjectNode archive = files.parseArchive(source.business.exportProject(10));
         archive.get("questions").forEach(question -> ((ObjectNode) question).remove("region"));
-        archive.get("reports").forEach(report -> ((ObjectNode) report).remove(List.of("report_language", "stage")));
+        archive.get("reports").forEach(report -> ((ObjectNode) report).remove(List.of("report_language", "stage", "content_progress")));
         Fixture target = createFixture();
         target.business.importProject(JsonUtils.toPrettyBytes(archive));
         assertEquals(1, target.jdbc.queryForObject("SELECT COUNT(*) FROM geo_diagnosis_plan_question", Integer.class));
         assertNull(target.jdbc.queryForObject("SELECT region FROM geo_diagnosis_plan_question", String.class));
         assertEquals("中文", target.jdbc.queryForObject("SELECT report_language FROM geo_diagnosis_report", String.class));
         assertEquals("JUDGE", target.jdbc.queryForObject("SELECT stage FROM geo_diagnosis_report", String.class));
+        assertNull(target.jdbc.queryForObject("SELECT content_progress FROM geo_diagnosis_report", String.class));
     }
 
     /** 已从当前方案删除的问题只恢复追溯标识，不作为新的当前问题出现。 */

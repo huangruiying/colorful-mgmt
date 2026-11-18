@@ -36,6 +36,16 @@
 .report-stage[data-state=failed] { border-color:#f2c9c7; background:#fff1f0; color:#a13031; }
 .report-stage[data-state=done] { border-color:#c4e6d0; background:#eaf8ef; color:#247348; }
 .report-progress + .report-section, .report-progress + .report-filter-note { margin-top:20px; }
+/* 第 2 段的子步骤：每行一个，状态标签按 data-state 着色 */
+.report-substeps { list-style:none; margin:6px 0 0; padding:0; display:flex; flex-direction:column; gap:4px; }
+.report-substeps li { display:flex; align-items:baseline; gap:8px; color:#4b5f79; font-size:13px; }
+.report-substep-state { flex:none; min-width:4.5em; padding:1px 8px; border-radius:6px; background:#edf2f8; color:#73849b; font-size:12px; text-align:center; }
+.report-substeps li[data-state=running] .report-substep-state { background:#eaf2ff; color:#245faa; }
+.report-substeps li[data-state=done] .report-substep-state { background:#eaf8ef; color:#247348; }
+.report-substeps li[data-state=failed] .report-substep-state { background:#fff1f0; color:#a13031; }
+.report-substeps li[data-state=skipped] .report-substep-state { background:#f3f5f8; color:#8a98aa; }
+.report-substep-name { flex:none; color:#33465e; }
+.report-substep-detail { color:#73849b; overflow-wrap:anywhere; }
 @media(max-width:900px) { .report-dimensions { grid-template-columns:1fr; } .report-stages { grid-template-columns:1fr; } }
 /* ⑦ 地域报告：地域子页签（链接，页面与导出网页各自切换）、宣传状态标记、两列证据与操作步骤 */
 .report-subtabs { display:flex; gap:8px; flex-wrap:wrap; margin:0 0 14px; }
