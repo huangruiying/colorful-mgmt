@@ -7,7 +7,7 @@ import org.huangry.colorful.geo.domain.service.diagnosis.DiagnosisTaskSnapshots;
 import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisReportService.ReportAnswer;
 import org.huangry.colorful.geo.domain.service.diagnosis.report.analyze.ResultRuleAnalyzer;
 import org.huangry.colorful.geo.domain.service.diagnosis.report.llm.DimensionPrompt;
-import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisTaskResultAnalysisEntity;
+import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisReportResultAnalysisEntity;
 import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisTaskResultEntity;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -244,7 +244,7 @@ class ReportSummarizerTest {
         result.setCitations("[]");
         result.setChannelSnapshot("{\"id\":6,\"channelName\":\"能链 claude\",\"modelName\":\"claude\"}");
         result.setQuestionSnapshot("{\"text\":\"问题" + question + "\",\"brandScope\":\"" + brandScope + "\",\"intent\":\"RECOMMENDATION\"}");
-        var analysis = new GeoDiagnosisTaskResultAnalysisEntity();
+        var analysis = new GeoDiagnosisReportResultAnalysisEntity();
         analysis.setStatus(status);
         analysis.setBrands(brands);
         analysis.setPoints(points);

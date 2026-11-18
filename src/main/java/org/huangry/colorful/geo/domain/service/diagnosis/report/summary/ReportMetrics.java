@@ -4,7 +4,7 @@ import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
 import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisReportService.ReportAnswer;
-import org.huangry.colorful.geo.infrastructure.common.enums.DiagnosisTaskResultAnalysisStatus;
+import org.huangry.colorful.geo.infrastructure.common.enums.DiagnosisReportResultAnalysisStatus;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -42,7 +42,7 @@ public final class ReportMetrics {
      * @return 判定成功时的观点列表，否则为空
      */
     public static List<JSONObject> listPoints(ReportAnswer answer) {
-        if (!DiagnosisTaskResultAnalysisStatus.SUCCEEDED.name().equals(answer.analysis().getStatus()) || answer.analysis().getPoints() == null) {
+        if (!DiagnosisReportResultAnalysisStatus.SUCCEEDED.name().equals(answer.analysis().getStatus()) || answer.analysis().getPoints() == null) {
             return List.of();
         }
         List<JSONObject> points = new ArrayList<>();

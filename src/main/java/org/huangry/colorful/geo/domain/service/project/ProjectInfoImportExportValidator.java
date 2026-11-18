@@ -3,8 +3,8 @@ package org.huangry.colorful.geo.domain.service.project;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import org.huangry.colorful.geo.infrastructure.common.enums.DiagnosisTaskReportStatus;
-import org.huangry.colorful.geo.infrastructure.common.enums.DiagnosisTaskResultAnalysisStatus;
+import org.huangry.colorful.geo.infrastructure.common.enums.DiagnosisReportStatus;
+import org.huangry.colorful.geo.infrastructure.common.enums.DiagnosisReportResultAnalysisStatus;
 import org.huangry.colorful.geo.infrastructure.common.enums.DiagnosisTaskResultStatus;
 import org.huangry.colorful.geo.infrastructure.common.enums.DiagnosisTaskStatus;
 import org.huangry.colorful.geo.infrastructure.common.enums.ProjectInfoImportExportTable;
@@ -37,9 +37,9 @@ public class ProjectInfoImportExportValidator {
     private static final Map<ProjectInfoImportExportTable, Set<String>> TERMINAL_STATUSES = Map.of(
             TASK, Set.of(DiagnosisTaskStatus.SUCCEEDED.name(), DiagnosisTaskStatus.PARTIAL_FAILED.name(), DiagnosisTaskStatus.FAILED.name()),
             RESULT, Set.of(DiagnosisTaskResultStatus.SUCCEEDED.name(), DiagnosisTaskResultStatus.FAILED.name()),
-            REPORT, Set.of(DiagnosisTaskReportStatus.SUCCEEDED.name(), DiagnosisTaskReportStatus.FAILED.name()));
+            REPORT, Set.of(DiagnosisReportStatus.SUCCEEDED.name(), DiagnosisReportStatus.FAILED.name()));
     /** 回答分析的全部有效状态；失败报告下的待判定记录不会被后台单独领取，可以保留。 */
-    private static final Set<String> ANALYSIS_STATUSES = Arrays.stream(DiagnosisTaskResultAnalysisStatus.values())
+    private static final Set<String> ANALYSIS_STATUSES = Arrays.stream(DiagnosisReportResultAnalysisStatus.values())
             .map(Enum::name).collect(Collectors.toSet());
 
     /**
@@ -282,8 +282,8 @@ public class ProjectInfoImportExportValidator {
         // 3. 成功报告不应包含待判定回答，失败报告的残留待判定记录不会被后台单独领取
         for (ObjectNode analysis : rows.get(ANALYSIS).values()) {
             ObjectNode report = rows.get(REPORT).get(JsonUtils.getPositiveLong(analysis, "report_id"));
-            if (DiagnosisTaskReportStatus.SUCCEEDED.name().equals(report.path("status").asText())
-                    && DiagnosisTaskResultAnalysisStatus.PENDING.name().equals(analysis.path("status").asText())) {
+            if (DiagnosisReportStatus.SUCCEEDED.name().equals(report.path("status").asText())
+                    && DiagnosisReportResultAnalysisStatus.PENDING.name().equals(analysis.path("status").asText())) {
                 throw new IllegalArgumentException("成功报告不能包含待判定的回答分析");
             }
         }

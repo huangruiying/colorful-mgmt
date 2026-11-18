@@ -8,8 +8,8 @@ import org.huangry.colorful.geo.domain.service.diagnosis.report.summary.ReportSu
 import org.huangry.colorful.geo.domain.service.diagnosis.DiagnosisTaskSnapshots;
 import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisReportService;
 import org.huangry.colorful.geo.domain.service.llm.GeoLlmChannelService;
-import org.huangry.colorful.geo.infrastructure.repository.GeoDiagnosisTaskReportDao;
-import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisTaskReportEntity;
+import org.huangry.colorful.geo.infrastructure.repository.GeoDiagnosisReportDao;
+import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisReportEntity;
 import org.huangry.colorful.geo.infrastructure.repository.entity.GeoLlmChannelEntity;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -25,14 +25,14 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /** 补全报告：只把 ③–⑥ 并入原汇总，①② 保持生成时的结论；不满足条件时拒绝，不调用模型；同一份报告不重复补全。 */
-class DiagnosisTaskReportSupplementBusinessTest {
-    private final DiagnosisTaskReportSupplementBusiness business = new DiagnosisTaskReportSupplementBusiness();
-    private final GeoDiagnosisTaskReportDao reportDao = mock(GeoDiagnosisTaskReportDao.class);
+class DiagnosisReportSupplementBusinessTest {
+    private final DiagnosisReportSupplementBusiness business = new DiagnosisReportSupplementBusiness();
+    private final GeoDiagnosisReportDao reportDao = mock(GeoDiagnosisReportDao.class);
     private final GeoDiagnosisReportService reportService = mock(GeoDiagnosisReportService.class);
     private final ReportSummarizer summarizer = mock(ReportSummarizer.class);
     private final ReportLlmAnalyzer llmAnalyzer = mock(ReportLlmAnalyzer.class);
     private final GeoLlmChannelService channelService = mock(GeoLlmChannelService.class);
-    private final DiagnosisTaskReportBusiness reportBusiness = mock(DiagnosisTaskReportBusiness.class);
+    private final DiagnosisReportBusiness reportBusiness = mock(DiagnosisReportBusiness.class);
     private final GeoLlmChannelEntity channel = new GeoLlmChannelEntity();
 
     /** 重算结果里的 ①② 被丢弃，原汇总的 ①② 保留；③–⑥ 与建议写入，判定渠道和报告语言沿用报告记下的。 */
@@ -119,13 +119,13 @@ class DiagnosisTaskReportSupplementBusinessTest {
 
     @BeforeEach
     void setup() {
-        ReflectionTestUtils.setField(business, "geoDiagnosisTaskReportDao", reportDao);
-        ReflectionTestUtils.setField(business, "geoDiagnosisTaskReportService", reportService);
+        ReflectionTestUtils.setField(business, "geoDiagnosisReportDao", reportDao);
+        ReflectionTestUtils.setField(business, "geoDiagnosisReportService", reportService);
         ReflectionTestUtils.setField(business, "reportSummarizer", summarizer);
         ReflectionTestUtils.setField(business, "reportLlmAnalyzer", llmAnalyzer);
         ReflectionTestUtils.setField(business, "diagnosisTaskSnapshots", new DiagnosisTaskSnapshots());
         ReflectionTestUtils.setField(business, "geoLlmChannelService", channelService);
-        ReflectionTestUtils.setField(business, "diagnosisTaskReportBusiness", reportBusiness);
+        ReflectionTestUtils.setField(business, "diagnosisReportBusiness", reportBusiness);
         when(channelService.getById(6L)).thenReturn(channel);
         when(reportService.getTaskSnapshot(30L)).thenReturn(new JSONObject().fluentPut("project", new JSONObject().fluentPut("name", "团油")));
         when(reportService.loadAnswers(anyLong())).thenReturn(List.of());
@@ -137,8 +137,8 @@ class DiagnosisTaskReportSupplementBusinessTest {
      * @param summary 冻结的汇总 JSON，可为 null
      * @return 诊断任务 30 的报告 9，判定渠道为 6，报告语言为中文（报告语言加入前生成的报告由表默认值记为中文）
      */
-    private GeoDiagnosisTaskReportEntity report(String status, String summary) {
-        var report = new GeoDiagnosisTaskReportEntity();
+    private GeoDiagnosisReportEntity report(String status, String summary) {
+        var report = new GeoDiagnosisReportEntity();
         report.setId(9L);
         report.setTaskId(30L);
         report.setStatus(status);

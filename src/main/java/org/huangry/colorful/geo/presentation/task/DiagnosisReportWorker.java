@@ -15,10 +15,10 @@ import org.huangry.colorful.geo.domain.service.diagnosis.report.llm.ReportLlmAna
 import org.huangry.colorful.geo.domain.service.diagnosis.report.summary.ReportSummarizer;
 import org.huangry.colorful.geo.domain.service.llm.GeoLlmChannelService;
 import org.huangry.colorful.geo.infrastructure.client.llm.LLMStrategyRouter;
-import org.huangry.colorful.geo.infrastructure.common.enums.DiagnosisTaskResultAnalysisStatus;
+import org.huangry.colorful.geo.infrastructure.common.enums.DiagnosisReportResultAnalysisStatus;
 import org.huangry.colorful.geo.infrastructure.common.exceptions.LLMClientException;
-import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisTaskReportEntity;
-import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisTaskResultAnalysisEntity;
+import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisReportEntity;
+import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisReportResultAnalysisEntity;
 import org.huangry.colorful.geo.infrastructure.repository.entity.GeoLlmChannelEntity;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -49,7 +49,7 @@ public class DiagnosisReportWorker {
 	private static final String LOCK_NAME = ":diagnosis-report-worker";
 
 	@Resource
-	private GeoDiagnosisReportService geoDiagnosisTaskReportService;
+	private GeoDiagnosisReportService geoDiagnosisReportService;
 	@Resource
 	private ResultAnalyzer resultAnalyzer;
 	@Resource
@@ -136,8 +136,8 @@ public class DiagnosisReportWorker {
 			if (! acquireLease()) {
 				return;
 			}
-			// 2. 提取待处理的 诊断报告
-			GeoDiagnosisTaskReportEntity report = geoDiagnosisTaskReportService.extrateUnprocessReport();
+			// 2. 领取要生成的诊断报告
+			GeoDiagnosisReportEntity report = geoDiagnosisReportService.claimNextReport();
 			if (report != null) {
 				reportId = report.getId();
 				// 进行报告生成
@@ -157,20 +157,20 @@ public class DiagnosisReportWorker {
 	 * @param report 已处于 RUNNING 的报告
 	 * @throws SQLException 执行锁连接检查失败，交由轮询处理
 	 */
-	private void generate(GeoDiagnosisTaskReportEntity report) throws SQLException {
+	private void generate(GeoDiagnosisReportEntity report) throws SQLException {
 		// 1. 读取任务快照中的项目资料；确定判定渠道，首次冻结，续跑沿用已冻结的同一渠道
-		JSONObject project = geoDiagnosisTaskReportService.getTaskSnapshot(report.getTaskId()).getJSONObject("project");
+		JSONObject project = geoDiagnosisReportService.getTaskSnapshot(report.getTaskId()).getJSONObject("project");
 		GeoLlmChannelEntity channel = judgeChannel(report);
 		if (channel == null) {
 			return;
 		}
 		// 2. 逐条判定剩余待判定记录，失败只记录本条原因并继续
-		Set<String> publishedUrls = geoDiagnosisTaskReportService.listPublishedUrls();
+		Set<String> publishedUrls = geoDiagnosisReportService.listPublishedUrls();
 		while (! stopped && ! Thread.currentThread().isInterrupted()) {
 			if (lease == null || ! lease.isValid(2)) {
 				throw new IllegalStateException("诊断报告执行锁连接已失效");
 			}
-			GeoDiagnosisTaskResultAnalysisEntity analysis = geoDiagnosisTaskReportService.findNextPendingAnalysis(report.getId());
+			GeoDiagnosisReportResultAnalysisEntity analysis = geoDiagnosisReportService.findNextPendingAnalysis(report.getId());
 			if (analysis == null) {
 				break;
 			}
@@ -189,11 +189,11 @@ public class DiagnosisReportWorker {
 	 * @param report 报告
 	 * @return 判定渠道；无法确定时报告已标记失败并返回 null
 	 */
-	private GeoLlmChannelEntity judgeChannel(GeoDiagnosisTaskReportEntity report) {
+	private GeoLlmChannelEntity judgeChannel(GeoDiagnosisReportEntity report) {
 		try {
 			if (report.getJudgeChannelSnapshot() == null) {
 				GeoLlmChannelEntity channel = router.selectDefaultChannel();
-				geoDiagnosisTaskReportService.freezeJudgeChannel(report.getId(), JSON.toJSONString(diagnosisTaskSnapshots.buildChannelSnapshot(channel), SerializerFeature.WriteMapNullValue),
+				geoDiagnosisReportService.freezeJudgeChannel(report.getId(), JSON.toJSONString(diagnosisTaskSnapshots.buildChannelSnapshot(channel), SerializerFeature.WriteMapNullValue),
 						ResultJudgePrompt.PROMPT_VERSION);
 				report.setJudgeChannelSnapshot(JSON.toJSONString(diagnosisTaskSnapshots.buildChannelSnapshot(channel), SerializerFeature.WriteMapNullValue));
 				report.setPromptVersion(ResultJudgePrompt.PROMPT_VERSION);
@@ -204,13 +204,13 @@ public class DiagnosisReportWorker {
 			Long channelId = ((JSONObject) diagnosisTaskSnapshots.parseSnapshot(report.getJudgeChannelSnapshot())).getLong("id");
 			GeoLlmChannelEntity channel = channelService.getById(channelId);
 			if (channel == null) {
-				geoDiagnosisTaskReportService.failReport(report.getId(), "判定渠道已被删除，请重新生成报告");
+				geoDiagnosisReportService.failReport(report.getId(), "判定渠道已被删除，请重新生成报告");
 				return null;
 			}
 			return channel;
 		} catch (LLMClientException exception) {
 			// 没有已启用渠道时无法判定，报告直接失败，不等待配置
-			geoDiagnosisTaskReportService.failReport(report.getId(), "没有已启用的模型渠道，无法判定");
+			geoDiagnosisReportService.failReport(report.getId(), "没有已启用的模型渠道，无法判定");
 			return null;
 		}
 	}
@@ -224,13 +224,13 @@ public class DiagnosisReportWorker {
 	 * @param project 项目资料
 	 * @param channel 判定渠道，用于维度归一、优化建议与地域策略调用
 	 */
-	private void summarize(GeoDiagnosisTaskReportEntity report, JSONObject project, GeoLlmChannelEntity channel) {
+	private void summarize(GeoDiagnosisReportEntity report, JSONObject project, GeoLlmChannelEntity channel) {
 		try {
 			// 1. 判定全部失败时没有可汇总的指标
-			List<ReportAnswer> answers = geoDiagnosisTaskReportService.loadAnswers(report.getId());
-			boolean anyJudged = answers.stream().anyMatch(answer -> DiagnosisTaskResultAnalysisStatus.SUCCEEDED.name().equals(answer.analysis().getStatus()));
+			List<ReportAnswer> answers = geoDiagnosisReportService.loadAnswers(report.getId());
+			boolean anyJudged = answers.stream().anyMatch(answer -> DiagnosisReportResultAnalysisStatus.SUCCEEDED.name().equals(answer.analysis().getStatus()));
 			if (! anyJudged) {
-				geoDiagnosisTaskReportService.failReport(report.getId(), "全部回答判定失败，无法生成报告");
+				geoDiagnosisReportService.failReport(report.getId(), "全部回答判定失败，无法生成报告");
 				return;
 			}
 			// 2. 维度归一（非核心，失败时保持原名）后计算指标并冻结
@@ -243,12 +243,12 @@ public class DiagnosisReportWorker {
 			// 4. ⑦ 每个有机会的地域调用一次模型写提升策略（非核心，失败只记录在该地域上）
 			reportLlmAnalyzer.generateRegionStrategies(summary.getJSONObject("region"), project, channel, report.getId(), reportLanguage);
 			// 5. 汇总、建议与策略一起冻结，报告完成
-			geoDiagnosisTaskReportService.finishReport(report.getId(), JSON.toJSONString(summary, SerializerFeature.WriteMapNullValue));
+			geoDiagnosisReportService.finishReport(report.getId(), JSON.toJSONString(summary, SerializerFeature.WriteMapNullValue));
 			log.info("诊断报告生成完成 reportId={}, answers={}", report.getId(), answers.size());
 		} catch (RuntimeException exception) {
 			// 汇总是确定性计算，重试只会重复失败并重复维度归一调用，因此直接结束
 			log.error("诊断报告汇总失败 reportId={}, errorType={}", report.getId(), exception.getClass().getSimpleName(), exception);
-			geoDiagnosisTaskReportService.failReport(report.getId(), "报告汇总失败，请联系管理员");
+			geoDiagnosisReportService.failReport(report.getId(), "报告汇总失败，请联系管理员");
 		}
 	}
 

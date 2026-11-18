@@ -11,8 +11,8 @@ import java.util.List;
  * 冻结的汇总只在详情返回；顶层空字段不输出到 JSON。
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public record DiagnosisTaskReportResponse(
-        /** 诊断报告 ID（geo_diagnosis_task_report.id）。 */
+public record DiagnosisReportResponse(
+        /** 诊断报告 ID（geo_diagnosis_report.id）。 */
         Long id,
         /** 所属诊断任务 ID（geo_diagnosis_task.id）。 */
         Long diagnosisTaskId,

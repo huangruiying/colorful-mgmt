@@ -5,20 +5,20 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.alibaba.fastjson.JSONObject;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
-import org.huangry.colorful.geo.infrastructure.common.enums.DiagnosisTaskResultAnalysisStatus;
-import org.huangry.colorful.geo.infrastructure.common.enums.DiagnosisTaskReportStatus;
+import org.huangry.colorful.geo.infrastructure.common.enums.DiagnosisReportResultAnalysisStatus;
+import org.huangry.colorful.geo.infrastructure.common.enums.DiagnosisReportStatus;
 import org.huangry.colorful.geo.infrastructure.common.enums.DiagnosisTaskResultStatus;
 import org.huangry.colorful.geo.infrastructure.common.enums.DiagnosisTaskStatus;
 import org.huangry.colorful.geo.infrastructure.repository.ContentPublishRecordDao;
-import org.huangry.colorful.geo.infrastructure.repository.GeoDiagnosisTaskResultAnalysisDao;
+import org.huangry.colorful.geo.infrastructure.repository.GeoDiagnosisReportResultAnalysisDao;
 import org.huangry.colorful.geo.infrastructure.repository.GeoDiagnosisTaskDao;
 import org.huangry.colorful.geo.infrastructure.repository.GeoDiagnosisTaskResultDao;
-import org.huangry.colorful.geo.infrastructure.repository.GeoDiagnosisTaskReportDao;
+import org.huangry.colorful.geo.infrastructure.repository.GeoDiagnosisReportDao;
 import org.huangry.colorful.geo.infrastructure.repository.entity.ContentPublishRecordEntity;
-import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisTaskResultAnalysisEntity;
+import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisReportResultAnalysisEntity;
 import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisTaskEntity;
 import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisTaskResultEntity;
-import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisTaskReportEntity;
+import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisReportEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -47,9 +47,9 @@ public class GeoDiagnosisReportService {
     private static final int REPORT_LANGUAGE_MAX_LENGTH = 50;
 
     @Resource
-    private GeoDiagnosisTaskReportDao reportDao;
+    private GeoDiagnosisReportDao reportDao;
     @Resource
-    private GeoDiagnosisTaskResultAnalysisDao analysisDao;
+    private GeoDiagnosisReportResultAnalysisDao analysisDao;
     @Resource
     private GeoDiagnosisTaskDao taskDao;
     @Resource
@@ -61,11 +61,11 @@ public class GeoDiagnosisReportService {
 
     /**
      * 把 诊断任务 转成 待处理的诊断报告(初始化)
-     * 为已结束的诊断任务创建一份待生成的报告，并为每条有效回答建立待判定记录；不调用模型，判定与汇总由 DiagnosisTaskReportWorker 后台完成。
+     * 为已结束的诊断任务创建一份待生成的报告，并为每条有效回答建立待判定记录；不调用模型，判定与汇总由 DiagnosisReportWorker 后台完成。
      * <p>写入（同一事务，任一步失败整体回滚）：
      * <ul>
-     *   <li>geo_diagnosis_task_report：新增 1 条，status = PENDING，记下报告语言，判定渠道与汇总留空；</li>
-     *   <li>geo_diagnosis_task_result_analysis：每条有效回答新增 1 条，status = PENDING，判定字段留空。</li>
+     *   <li>geo_diagnosis_report：新增 1 条，status = PENDING，记下报告语言，判定渠道与汇总留空；</li>
+     *   <li>geo_diagnosis_report_result_analysis：每条有效回答新增 1 条，status = PENDING，判定字段留空。</li>
      * </ul>
      * 有效回答：geo_diagnosis_task_result 中 status = SUCCEEDED 且结束原因不是 length（未被截断）。</p>
      * @param taskId 诊断任务 ID
@@ -75,7 +75,7 @@ public class GeoDiagnosisReportService {
      * @throws IllegalArgumentException 报告语言超长、任务未结束或全部失败、已有报告正在生成、没有可分析的有效回答
      */
     @Transactional
-    public GeoDiagnosisTaskReportEntity createReport(long taskId, String reportLanguage) {
+    public GeoDiagnosisReportEntity createReport(long taskId, String reportLanguage) {
         // 1. 先确认报告语言，再锁住诊断任务，与重新发起、后台领取及并发生成串行；只有全部成功或部分失败的任务才能分析
         String language = confirmReportLanguage(reportLanguage);
         GeoDiagnosisTaskEntity task = taskDao.selectOne(new LambdaQueryWrapper<GeoDiagnosisTaskEntity>()
@@ -87,20 +87,20 @@ public class GeoDiagnosisReportService {
             throw new IllegalArgumentException("诊断任务尚未结束或全部失败，无法生成报告");
         }
         // 2. 同一任务同时只允许一份报告在生成，避免重复判定计费
-        boolean generating = reportDao.exists(new LambdaQueryWrapper<GeoDiagnosisTaskReportEntity>()
-                .eq(GeoDiagnosisTaskReportEntity::getTaskId, taskId)
-                .in(GeoDiagnosisTaskReportEntity::getStatus, DiagnosisTaskReportStatus.PENDING.name(), DiagnosisTaskReportStatus.RUNNING.name()));
+        boolean generating = reportDao.exists(new LambdaQueryWrapper<GeoDiagnosisReportEntity>()
+                .eq(GeoDiagnosisReportEntity::getTaskId, taskId)
+                .in(GeoDiagnosisReportEntity::getStatus, DiagnosisReportStatus.PENDING.name(), DiagnosisReportStatus.RUNNING.name()));
         if (generating) {
             throw new IllegalArgumentException("该诊断任务已有报告正在生成，请等待完成");
         }
         // 3. 创建报告并为有效回答批量建立待判定记录；没有有效回答时整体回滚
-        GeoDiagnosisTaskReportEntity report = new GeoDiagnosisTaskReportEntity();
+        GeoDiagnosisReportEntity report = new GeoDiagnosisReportEntity();
         report.setTaskId(taskId);
-        report.setStatus(DiagnosisTaskReportStatus.PENDING.name());
+        report.setStatus(DiagnosisReportStatus.PENDING.name());
         report.setReportLanguage(language);
         reportDao.insert(report);
         int analysisCount = analysisDao.insertPendingFromResults(report.getId(), taskId,
-                DiagnosisTaskResultStatus.SUCCEEDED.name(), TRUNCATED_FINISH_REASON, DiagnosisTaskResultAnalysisStatus.PENDING.name());
+                DiagnosisTaskResultStatus.SUCCEEDED.name(), TRUNCATED_FINISH_REASON, DiagnosisReportResultAnalysisStatus.PENDING.name());
         if (analysisCount == 0) {
             throw new IllegalArgumentException("该诊断任务没有可分析的有效回答");
         }
@@ -127,39 +127,38 @@ public class GeoDiagnosisReportService {
     }
 
     /**
-     * 提取待处理报告
-     * 优先继续上次中断的 RUNNING 报告，其次领取最早的 PENDING 报告。
+     * 领取下一份要生成的报告：优先继续上次中断的 RUNNING 报告，其次领取最早的 PENDING 报告并改为 RUNNING。
      * <p>单实例执行由后台执行器的数据库会话锁保证，因此残留的 RUNNING 报告可以直接续跑；已判定的回答不会重复判定。</p>
      * @return 已处于 RUNNING 的报告，没有可处理的报告时为 null
      */
     @Transactional
-    public GeoDiagnosisTaskReportEntity extrateUnprocessReport() {
+    public GeoDiagnosisReportEntity claimNextReport() {
         // 1. 存在在分析中的报告，优先处理
-        GeoDiagnosisTaskReportEntity running = reportDao.selectOne(new LambdaQueryWrapper<GeoDiagnosisTaskReportEntity>()
-                .eq(GeoDiagnosisTaskReportEntity::getStatus, DiagnosisTaskReportStatus.RUNNING.name())
-                .orderByAsc(GeoDiagnosisTaskReportEntity::getId).last("LIMIT 1 FOR UPDATE"));
+        GeoDiagnosisReportEntity running = reportDao.selectOne(new LambdaQueryWrapper<GeoDiagnosisReportEntity>()
+                .eq(GeoDiagnosisReportEntity::getStatus, DiagnosisReportStatus.RUNNING.name())
+                .orderByAsc(GeoDiagnosisReportEntity::getId).last("LIMIT 1 FOR UPDATE"));
         if (running != null) {
             return running;
         }
         // 2. 获取待处理的诊断报告
-        GeoDiagnosisTaskReportEntity report = reportDao.selectOne(new LambdaQueryWrapper<GeoDiagnosisTaskReportEntity>()
-                .eq(GeoDiagnosisTaskReportEntity::getStatus, DiagnosisTaskReportStatus.PENDING.name())
-                .orderByAsc(GeoDiagnosisTaskReportEntity::getId).last("LIMIT 1 FOR UPDATE"));
+        GeoDiagnosisReportEntity report = reportDao.selectOne(new LambdaQueryWrapper<GeoDiagnosisReportEntity>()
+                .eq(GeoDiagnosisReportEntity::getStatus, DiagnosisReportStatus.PENDING.name())
+                .orderByAsc(GeoDiagnosisReportEntity::getId).last("LIMIT 1 FOR UPDATE"));
         if (report == null) {
             return null;
         }
         // 2.1 标记诊断报告为处理中
         LocalDateTime now = LocalDateTime.now();
-        int changed = reportDao.update(null, new LambdaUpdateWrapper<GeoDiagnosisTaskReportEntity>()
-                .eq(GeoDiagnosisTaskReportEntity::getId, report.getId())
-                .eq(GeoDiagnosisTaskReportEntity::getStatus, DiagnosisTaskReportStatus.PENDING.name())
-                .set(GeoDiagnosisTaskReportEntity::getStatus, DiagnosisTaskReportStatus.RUNNING.name())
-                .set(GeoDiagnosisTaskReportEntity::getStartedAt, now));
+        int changed = reportDao.update(null, new LambdaUpdateWrapper<GeoDiagnosisReportEntity>()
+                .eq(GeoDiagnosisReportEntity::getId, report.getId())
+                .eq(GeoDiagnosisReportEntity::getStatus, DiagnosisReportStatus.PENDING.name())
+                .set(GeoDiagnosisReportEntity::getStatus, DiagnosisReportStatus.RUNNING.name())
+                .set(GeoDiagnosisReportEntity::getStartedAt, now));
         if (changed != 1) {
-            // 标记失败
+            // 标记失败：报告已被其他操作改走状态，本轮不领取，下次轮询再取
             return null;
         }
-        report.setStatus(DiagnosisTaskReportStatus.RUNNING.name());
+        report.setStatus(DiagnosisReportStatus.RUNNING.name());
         report.setStartedAt(now);
         return report;
     }
@@ -172,11 +171,11 @@ public class GeoDiagnosisReportService {
      */
     @Transactional
     public void freezeJudgeChannel(long reportId, String judgeChannelSnapshot, String promptVersion) {
-        reportDao.update(null, new LambdaUpdateWrapper<GeoDiagnosisTaskReportEntity>()
-                .eq(GeoDiagnosisTaskReportEntity::getId, reportId)
-                .isNull(GeoDiagnosisTaskReportEntity::getJudgeChannelSnapshot)
-                .set(GeoDiagnosisTaskReportEntity::getJudgeChannelSnapshot, judgeChannelSnapshot)
-                .set(GeoDiagnosisTaskReportEntity::getPromptVersion, promptVersion));
+        reportDao.update(null, new LambdaUpdateWrapper<GeoDiagnosisReportEntity>()
+                .eq(GeoDiagnosisReportEntity::getId, reportId)
+                .isNull(GeoDiagnosisReportEntity::getJudgeChannelSnapshot)
+                .set(GeoDiagnosisReportEntity::getJudgeChannelSnapshot, judgeChannelSnapshot)
+                .set(GeoDiagnosisReportEntity::getPromptVersion, promptVersion));
     }
 
     /**
@@ -184,11 +183,11 @@ public class GeoDiagnosisReportService {
      * @param reportId 报告 ID
      * @return 待判定记录，没有剩余时为 null
      */
-    public GeoDiagnosisTaskResultAnalysisEntity findNextPendingAnalysis(long reportId) {
-        return analysisDao.selectOne(new LambdaQueryWrapper<GeoDiagnosisTaskResultAnalysisEntity>()
-                .eq(GeoDiagnosisTaskResultAnalysisEntity::getReportId, reportId)
-                .eq(GeoDiagnosisTaskResultAnalysisEntity::getStatus, DiagnosisTaskResultAnalysisStatus.PENDING.name())
-                .orderByAsc(GeoDiagnosisTaskResultAnalysisEntity::getId).last("LIMIT 1"));
+    public GeoDiagnosisReportResultAnalysisEntity findNextPendingAnalysis(long reportId) {
+        return analysisDao.selectOne(new LambdaQueryWrapper<GeoDiagnosisReportResultAnalysisEntity>()
+                .eq(GeoDiagnosisReportResultAnalysisEntity::getReportId, reportId)
+                .eq(GeoDiagnosisReportResultAnalysisEntity::getStatus, DiagnosisReportResultAnalysisStatus.PENDING.name())
+                .orderByAsc(GeoDiagnosisReportResultAnalysisEntity::getId).last("LIMIT 1"));
     }
 
     /**
@@ -197,16 +196,16 @@ public class GeoDiagnosisReportService {
      * @throws IllegalStateException 记录不处于待判定状态，未保存
      */
     @Transactional
-    public void updateAnalysisSucceeded(GeoDiagnosisTaskResultAnalysisEntity analysis) {
-        int changed = analysisDao.update(null, new LambdaUpdateWrapper<GeoDiagnosisTaskResultAnalysisEntity>()
-                .eq(GeoDiagnosisTaskResultAnalysisEntity::getId, analysis.getId())
-                .eq(GeoDiagnosisTaskResultAnalysisEntity::getStatus, DiagnosisTaskResultAnalysisStatus.PENDING.name())
-                .set(GeoDiagnosisTaskResultAnalysisEntity::getStatus, DiagnosisTaskResultAnalysisStatus.SUCCEEDED.name())
-                .set(GeoDiagnosisTaskResultAnalysisEntity::getBrandSentiment, analysis.getBrandSentiment())
-                .set(GeoDiagnosisTaskResultAnalysisEntity::getDescriptionAccurate, analysis.getDescriptionAccurate())
-                .set(GeoDiagnosisTaskResultAnalysisEntity::getBrands, analysis.getBrands())
-                .set(GeoDiagnosisTaskResultAnalysisEntity::getPoints, analysis.getPoints())
-                .set(GeoDiagnosisTaskResultAnalysisEntity::getSources, analysis.getSources()));
+    public void updateAnalysisSucceeded(GeoDiagnosisReportResultAnalysisEntity analysis) {
+        int changed = analysisDao.update(null, new LambdaUpdateWrapper<GeoDiagnosisReportResultAnalysisEntity>()
+                .eq(GeoDiagnosisReportResultAnalysisEntity::getId, analysis.getId())
+                .eq(GeoDiagnosisReportResultAnalysisEntity::getStatus, DiagnosisReportResultAnalysisStatus.PENDING.name())
+                .set(GeoDiagnosisReportResultAnalysisEntity::getStatus, DiagnosisReportResultAnalysisStatus.SUCCEEDED.name())
+                .set(GeoDiagnosisReportResultAnalysisEntity::getBrandSentiment, analysis.getBrandSentiment())
+                .set(GeoDiagnosisReportResultAnalysisEntity::getDescriptionAccurate, analysis.getDescriptionAccurate())
+                .set(GeoDiagnosisReportResultAnalysisEntity::getBrands, analysis.getBrands())
+                .set(GeoDiagnosisReportResultAnalysisEntity::getPoints, analysis.getPoints())
+                .set(GeoDiagnosisReportResultAnalysisEntity::getSources, analysis.getSources()));
         if (changed != 1) {
             throw new IllegalStateException("诊断回答分析结果保存失败");
         }
@@ -221,12 +220,12 @@ public class GeoDiagnosisReportService {
      */
     @Transactional
     public void updateAnalysisFailed(long analysisId, String reason, String sources) {
-        int changed = analysisDao.update(null, new LambdaUpdateWrapper<GeoDiagnosisTaskResultAnalysisEntity>()
-                .eq(GeoDiagnosisTaskResultAnalysisEntity::getId, analysisId)
-                .eq(GeoDiagnosisTaskResultAnalysisEntity::getStatus, DiagnosisTaskResultAnalysisStatus.PENDING.name())
-                .set(GeoDiagnosisTaskResultAnalysisEntity::getStatus, DiagnosisTaskResultAnalysisStatus.FAILED.name())
-                .set(GeoDiagnosisTaskResultAnalysisEntity::getErrorMessage, reason)
-                .set(GeoDiagnosisTaskResultAnalysisEntity::getSources, sources));
+        int changed = analysisDao.update(null, new LambdaUpdateWrapper<GeoDiagnosisReportResultAnalysisEntity>()
+                .eq(GeoDiagnosisReportResultAnalysisEntity::getId, analysisId)
+                .eq(GeoDiagnosisReportResultAnalysisEntity::getStatus, DiagnosisReportResultAnalysisStatus.PENDING.name())
+                .set(GeoDiagnosisReportResultAnalysisEntity::getStatus, DiagnosisReportResultAnalysisStatus.FAILED.name())
+                .set(GeoDiagnosisReportResultAnalysisEntity::getErrorMessage, reason)
+                .set(GeoDiagnosisReportResultAnalysisEntity::getSources, sources));
         if (changed != 1) {
             throw new IllegalStateException("诊断回答分析失败结果保存失败");
         }
@@ -239,27 +238,27 @@ public class GeoDiagnosisReportService {
      */
     @Transactional
     public void finishReport(long reportId, String summary) {
-        reportDao.update(null, new LambdaUpdateWrapper<GeoDiagnosisTaskReportEntity>()
-                .eq(GeoDiagnosisTaskReportEntity::getId, reportId)
-                .eq(GeoDiagnosisTaskReportEntity::getStatus, DiagnosisTaskReportStatus.RUNNING.name())
-                .set(GeoDiagnosisTaskReportEntity::getStatus, DiagnosisTaskReportStatus.SUCCEEDED.name())
-                .set(GeoDiagnosisTaskReportEntity::getSummary, summary)
-                .set(GeoDiagnosisTaskReportEntity::getFinishedAt, LocalDateTime.now()));
+        reportDao.update(null, new LambdaUpdateWrapper<GeoDiagnosisReportEntity>()
+                .eq(GeoDiagnosisReportEntity::getId, reportId)
+                .eq(GeoDiagnosisReportEntity::getStatus, DiagnosisReportStatus.RUNNING.name())
+                .set(GeoDiagnosisReportEntity::getStatus, DiagnosisReportStatus.SUCCEEDED.name())
+                .set(GeoDiagnosisReportEntity::getSummary, summary)
+                .set(GeoDiagnosisReportEntity::getFinishedAt, LocalDateTime.now()));
     }
 
     /**
      * 补全报告缺失的汇总内容：用补算后的完整汇总替换 summary，状态、时间与判定记录都不改。
-     * <p>写入 geo_diagnosis_task_report 1 条的 summary 字段，只更新已完成（SUCCEEDED）的报告；同一份报告不重复补全由调用方保证。</p>
+     * <p>写入 geo_diagnosis_report 1 条的 summary 字段，只更新已完成（SUCCEEDED）的报告；同一份报告不重复补全由调用方保证。</p>
      * @param reportId 报告 ID
      * @param summary 补全后的完整汇总 JSON
      * @throws IllegalStateException 报告已不是已完成状态，未写入
      */
     @Transactional
     public void updateReportSummarySupplemented(long reportId, String summary) {
-        int changed = reportDao.update(null, new LambdaUpdateWrapper<GeoDiagnosisTaskReportEntity>()
-                .eq(GeoDiagnosisTaskReportEntity::getId, reportId)
-                .eq(GeoDiagnosisTaskReportEntity::getStatus, DiagnosisTaskReportStatus.SUCCEEDED.name())
-                .set(GeoDiagnosisTaskReportEntity::getSummary, summary));
+        int changed = reportDao.update(null, new LambdaUpdateWrapper<GeoDiagnosisReportEntity>()
+                .eq(GeoDiagnosisReportEntity::getId, reportId)
+                .eq(GeoDiagnosisReportEntity::getStatus, DiagnosisReportStatus.SUCCEEDED.name())
+                .set(GeoDiagnosisReportEntity::getSummary, summary));
         if (changed != 1) {
             throw new IllegalStateException("诊断报告补全结果保存失败");
         }
@@ -272,12 +271,12 @@ public class GeoDiagnosisReportService {
      */
     @Transactional
     public void failReport(long reportId, String reason) {
-        reportDao.update(null, new LambdaUpdateWrapper<GeoDiagnosisTaskReportEntity>()
-                .eq(GeoDiagnosisTaskReportEntity::getId, reportId)
-                .eq(GeoDiagnosisTaskReportEntity::getStatus, DiagnosisTaskReportStatus.RUNNING.name())
-                .set(GeoDiagnosisTaskReportEntity::getStatus, DiagnosisTaskReportStatus.FAILED.name())
-                .set(GeoDiagnosisTaskReportEntity::getErrorMessage, reason)
-                .set(GeoDiagnosisTaskReportEntity::getFinishedAt, LocalDateTime.now()));
+        reportDao.update(null, new LambdaUpdateWrapper<GeoDiagnosisReportEntity>()
+                .eq(GeoDiagnosisReportEntity::getId, reportId)
+                .eq(GeoDiagnosisReportEntity::getStatus, DiagnosisReportStatus.RUNNING.name())
+                .set(GeoDiagnosisReportEntity::getStatus, DiagnosisReportStatus.FAILED.name())
+                .set(GeoDiagnosisReportEntity::getErrorMessage, reason)
+                .set(GeoDiagnosisReportEntity::getFinishedAt, LocalDateTime.now()));
     }
 
     /**
@@ -330,15 +329,15 @@ public class GeoDiagnosisReportService {
      */
     public List<ReportAnswer> loadAnswers(long reportId) {
         // 1. 读取本报告全部分析记录
-        List<GeoDiagnosisTaskResultAnalysisEntity> analyses = analysisDao.selectList(new LambdaQueryWrapper<GeoDiagnosisTaskResultAnalysisEntity>()
-                .eq(GeoDiagnosisTaskResultAnalysisEntity::getReportId, reportId)
-                .orderByAsc(GeoDiagnosisTaskResultAnalysisEntity::getId));
+        List<GeoDiagnosisReportResultAnalysisEntity> analyses = analysisDao.selectList(new LambdaQueryWrapper<GeoDiagnosisReportResultAnalysisEntity>()
+                .eq(GeoDiagnosisReportResultAnalysisEntity::getReportId, reportId)
+                .orderByAsc(GeoDiagnosisReportResultAnalysisEntity::getId));
         if (analyses.isEmpty()) {
             return List.of();
         }
         // 2. 一次查询对应诊断结果，按 ID 组装，避免逐条往返
         Map<Long, GeoDiagnosisTaskResultEntity> results = resultDao.selectBatchIds(
-                analyses.stream().map(GeoDiagnosisTaskResultAnalysisEntity::getTaskResultId).toList()).stream()
+                analyses.stream().map(GeoDiagnosisReportResultAnalysisEntity::getTaskResultId).toList()).stream()
                 .collect(Collectors.toMap(GeoDiagnosisTaskResultEntity::getId, Function.identity()));
         return analyses.stream().map(analysis -> new ReportAnswer(analysis, results.get(analysis.getTaskResultId()))).toList();
     }
@@ -348,6 +347,6 @@ public class GeoDiagnosisReportService {
      * @param analysis 分析记录
      * @param result 诊断结果，包含问题与渠道快照、回答、引用与原始响应
      */
-    public record ReportAnswer(GeoDiagnosisTaskResultAnalysisEntity analysis, GeoDiagnosisTaskResultEntity result) {
+    public record ReportAnswer(GeoDiagnosisReportResultAnalysisEntity analysis, GeoDiagnosisTaskResultEntity result) {
     }
 }

@@ -4,7 +4,7 @@ import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
 import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisReportService.ReportAnswer;
-import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisTaskResultAnalysisEntity;
+import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisReportResultAnalysisEntity;
 import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisTaskResultEntity;
 import org.junit.jupiter.api.Test;
 
@@ -160,7 +160,7 @@ class ReportRegionSummarizerTest {
             snapshot.put("region", region);
         }
         result.setQuestionSnapshot(snapshot.toJSONString());
-        var analysis = new GeoDiagnosisTaskResultAnalysisEntity();
+        var analysis = new GeoDiagnosisReportResultAnalysisEntity();
         analysis.setStatus("SUCCEEDED");
         analysis.setBrands(brands);
         analysis.setPoints(points);

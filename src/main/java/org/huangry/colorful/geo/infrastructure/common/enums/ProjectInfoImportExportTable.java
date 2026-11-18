@@ -38,11 +38,11 @@ public enum ProjectInfoImportExportTable {
 	/**
 	 * 已结束的诊断报告及冻结汇总。
 	 */
-	REPORT("reports", "geo_diagnosis_task_report", "id,task_id,status,judge_channel_snapshot,prompt_version,report_language,summary,error_message,started_at,finished_at,created_at,updated_at"),
+	REPORT("reports", "geo_diagnosis_report", "id,task_id,status,judge_channel_snapshot,prompt_version,report_language,summary,error_message,started_at,finished_at,created_at,updated_at"),
 	/**
 	 * 报告中的回答判定和人工修正。
 	 */
-	ANALYSIS("analyses", "geo_diagnosis_task_result_analysis", "id,report_id,task_result_id,status,brand_sentiment,description_accurate,brands,points,sources,error_message,manually_corrected,created_at,updated_at");
+	ANALYSIS("analyses", "geo_diagnosis_report_result_analysis", "id,report_id,task_result_id,status,brand_sentiment,description_accurate,brands,points,sources,error_message,manually_corrected,created_at,updated_at");
 
 	/**
 	 * JSON 列在文件中保存为 JSON 值，写回数据库时显式序列化。

@@ -7,7 +7,7 @@ import jakarta.annotation.Resource;
 import org.huangry.colorful.geo.domain.service.diagnosis.DiagnosisTaskSnapshots;
 import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisReportService.ReportAnswer;
 import org.huangry.colorful.geo.domain.service.diagnosis.report.analyze.ResultRuleAnalyzer;
-import org.huangry.colorful.geo.infrastructure.common.enums.DiagnosisTaskResultAnalysisStatus;
+import org.huangry.colorful.geo.infrastructure.common.enums.DiagnosisReportResultAnalysisStatus;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -97,7 +97,7 @@ public class ReportSummarizer {
     private ReportAnswerFacts buildAnswerFacts(ReportAnswer answer, List<String> targetNames) {
         JSONObject channel = (JSONObject) diagnosisTaskSnapshots.parseSnapshot(answer.result().getChannelSnapshot());
         JSONObject question = (JSONObject) diagnosisTaskSnapshots.parseSnapshot(answer.result().getQuestionSnapshot());
-        boolean judged = DiagnosisTaskResultAnalysisStatus.SUCCEEDED.name().equals(answer.analysis().getStatus());
+        boolean judged = DiagnosisReportResultAnalysisStatus.SUCCEEDED.name().equals(answer.analysis().getStatus());
         JSONArray brands = judged && answer.analysis().getBrands() != null ? JSON.parseArray(answer.analysis().getBrands()) : new JSONArray();
         JSONObject target = brands.stream().map(JSONObject.class::cast).filter(brand -> "TARGET".equals(brand.getString("type")))
                 .findFirst().orElse(null);

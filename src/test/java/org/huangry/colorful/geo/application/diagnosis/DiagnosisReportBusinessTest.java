@@ -5,11 +5,11 @@ import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.huangry.colorful.geo.domain.service.diagnosis.DiagnosisTaskSnapshots;
 import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisReportService;
-import org.huangry.colorful.geo.infrastructure.repository.GeoDiagnosisTaskResultAnalysisDao;
+import org.huangry.colorful.geo.infrastructure.repository.GeoDiagnosisReportResultAnalysisDao;
 import org.huangry.colorful.geo.infrastructure.repository.GeoDiagnosisTaskDao;
-import org.huangry.colorful.geo.infrastructure.repository.GeoDiagnosisTaskReportDao;
+import org.huangry.colorful.geo.infrastructure.repository.GeoDiagnosisReportDao;
 import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisTaskEntity;
-import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisTaskReportEntity;
+import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisReportEntity;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -23,11 +23,11 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /** 报告列表与详情的组装：名称取自任务快照、判定进度按状态汇总、汇总只在详情返回、输入校验。 */
-class DiagnosisTaskReportBusinessTest {
-    private final DiagnosisTaskReportBusiness business = new DiagnosisTaskReportBusiness();
+class DiagnosisReportBusinessTest {
+    private final DiagnosisReportBusiness business = new DiagnosisReportBusiness();
     private final GeoDiagnosisReportService service = mock(GeoDiagnosisReportService.class);
-    private final GeoDiagnosisTaskReportDao reports = mock(GeoDiagnosisTaskReportDao.class);
-    private final GeoDiagnosisTaskResultAnalysisDao analyses = mock(GeoDiagnosisTaskResultAnalysisDao.class);
+    private final GeoDiagnosisReportDao reports = mock(GeoDiagnosisReportDao.class);
+    private final GeoDiagnosisReportResultAnalysisDao analyses = mock(GeoDiagnosisReportResultAnalysisDao.class);
     private final GeoDiagnosisTaskDao tasks = mock(GeoDiagnosisTaskDao.class);
 
     /** 列表按报告汇总判定进度，名称来自任务快照，不返回冻结汇总。 */
@@ -80,7 +80,7 @@ class DiagnosisTaskReportBusinessTest {
     @BeforeEach
     void setup() {
         var assistant = new MapperBuilderAssistant(new MybatisConfiguration(), "diagnosis-report-business-test");
-        TableInfoHelper.initTableInfo(assistant, GeoDiagnosisTaskReportEntity.class);
+        TableInfoHelper.initTableInfo(assistant, GeoDiagnosisReportEntity.class);
         ReflectionTestUtils.setField(business, "reportService", service);
         ReflectionTestUtils.setField(business, "reportDao", reports);
         ReflectionTestUtils.setField(business, "analysisDao", analyses);
@@ -96,8 +96,8 @@ class DiagnosisTaskReportBusinessTest {
      * @param summary 冻结汇总 JSON
      * @return 所属任务 30、已冻结判定渠道的报告
      */
-    private GeoDiagnosisTaskReportEntity report(String summary) {
-        var report = new GeoDiagnosisTaskReportEntity();
+    private GeoDiagnosisReportEntity report(String summary) {
+        var report = new GeoDiagnosisReportEntity();
         report.setId(9L);
         report.setTaskId(30L);
         report.setStatus("RUNNING");

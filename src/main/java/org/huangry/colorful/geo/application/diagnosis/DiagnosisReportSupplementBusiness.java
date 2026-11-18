@@ -5,16 +5,16 @@ import com.alibaba.fastjson.JSONObject;
 import com.alibaba.fastjson.serializer.SerializerFeature;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
-import org.huangry.colorful.geo.application.diagnosis.model.DiagnosisTaskReportResponse;
+import org.huangry.colorful.geo.application.diagnosis.model.DiagnosisReportResponse;
 import org.huangry.colorful.geo.domain.service.diagnosis.DiagnosisTaskSnapshots;
 import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisReportService.ReportAnswer;
 import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisReportService;
 import org.huangry.colorful.geo.domain.service.diagnosis.report.llm.ReportLlmAnalyzer;
 import org.huangry.colorful.geo.domain.service.diagnosis.report.summary.ReportSummarizer;
 import org.huangry.colorful.geo.domain.service.llm.GeoLlmChannelService;
-import org.huangry.colorful.geo.infrastructure.common.enums.DiagnosisTaskReportStatus;
-import org.huangry.colorful.geo.infrastructure.repository.GeoDiagnosisTaskReportDao;
-import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisTaskReportEntity;
+import org.huangry.colorful.geo.infrastructure.common.enums.DiagnosisReportStatus;
+import org.huangry.colorful.geo.infrastructure.repository.GeoDiagnosisReportDao;
+import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisReportEntity;
 import org.huangry.colorful.geo.infrastructure.repository.entity.GeoLlmChannelEntity;
 import org.springframework.stereotype.Service;
 
@@ -32,14 +32,14 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 @Service
 @Slf4j
-public class DiagnosisTaskReportSupplementBusiness {
+public class DiagnosisReportSupplementBusiness {
     /** 本实例正在补全的报告 ID，防止同一份报告被重复补全、重复调用模型；不同报告可以同时补全。 */
     private final Set<Long> supplementingReportIds = ConcurrentHashMap.newKeySet();
 
     @Resource
-    private GeoDiagnosisTaskReportDao geoDiagnosisTaskReportDao;
+    private GeoDiagnosisReportDao geoDiagnosisReportDao;
     @Resource
-    private GeoDiagnosisReportService geoDiagnosisTaskReportService;
+    private GeoDiagnosisReportService geoDiagnosisReportService;
     @Resource
     private ReportSummarizer reportSummarizer;
     @Resource
@@ -49,7 +49,7 @@ public class DiagnosisTaskReportSupplementBusiness {
     @Resource
     private GeoLlmChannelService geoLlmChannelService;
     @Resource
-    private DiagnosisTaskReportBusiness diagnosisTaskReportBusiness;
+    private DiagnosisReportBusiness diagnosisReportBusiness;
 
     /**
      * 补全一份报告：读已保存的判定结果重算汇总，只把缺少的部分并入原 summary，已有部分保持原结论。
@@ -58,7 +58,7 @@ public class DiagnosisTaskReportSupplementBusiness {
      * @throws NoSuchElementException 报告不存在
      * @throws IllegalArgumentException 报告正在补全、未完成、内容完整，或冻结的判定渠道已被删除
      */
-    public DiagnosisTaskReportResponse supplementReport(long reportId) {
+    public DiagnosisReportResponse supplementReport(long reportId) {
         // 同一份报告正在补全时直接拒绝，结束后释放，不同报告不受影响
         if (!supplementingReportIds.add(reportId)) {
             throw new IllegalArgumentException("该报告正在补全，请稍候");
@@ -75,9 +75,9 @@ public class DiagnosisTaskReportSupplementBusiness {
      * @param reportId 报告 ID
      * @return 补全后的报告详情
      */
-    private DiagnosisTaskReportResponse supplementReportOnce(long reportId) {
+    private DiagnosisReportResponse supplementReportOnce(long reportId) {
         // 1. 确认可以补全：报告已完成、汇总有缺失部分，判定渠道仍在
-        GeoDiagnosisTaskReportEntity report = getCompletedReport(reportId);
+        GeoDiagnosisReportEntity report = getCompletedReport(reportId);
         JSONObject summary = (JSONObject) diagnosisTaskSnapshots.parseSnapshot(report.getSummary());
         List<String> missingParts = ReportSummarizer.listMissingParts(summary);
         if (missingParts.isEmpty()) {
@@ -87,8 +87,8 @@ public class DiagnosisTaskReportSupplementBusiness {
         GeoLlmChannelEntity channel = getJudgeChannel(judgeChannel);
 
         // 2. 用已保存的判定结果重算汇总，维度归一与优化建议沿用报告冻结的判定渠道和报告语言（旧报告为中文）
-        JSONObject project = geoDiagnosisTaskReportService.getTaskSnapshot(report.getTaskId()).getJSONObject("project");
-        List<ReportAnswer> answers = geoDiagnosisTaskReportService.loadAnswers(reportId);
+        JSONObject project = geoDiagnosisReportService.getTaskSnapshot(report.getTaskId()).getJSONObject("project");
+        List<ReportAnswer> answers = geoDiagnosisReportService.loadAnswers(reportId);
         Map<String, String> mapping = reportLlmAnalyzer.normalizeDimensions(answers, channel, reportId, report.getReportLanguage());
         JSONObject recalculated = reportSummarizer.buildSummary(answers, project, mapping, judgeChannel, report.getPromptVersion());
         if (missingParts.contains("advice")) {
@@ -100,9 +100,9 @@ public class DiagnosisTaskReportSupplementBusiness {
         missingParts.forEach(part -> summary.put(part, recalculated.get(part)));
 
         // 4. 保存补全后的汇总
-        geoDiagnosisTaskReportService.updateReportSummarySupplemented(reportId, JSON.toJSONString(summary, SerializerFeature.WriteMapNullValue));
+        geoDiagnosisReportService.updateReportSummarySupplemented(reportId, JSON.toJSONString(summary, SerializerFeature.WriteMapNullValue));
         log.info("诊断报告补全完成 reportId={}, answers={}, missingParts={}", reportId, answers.size(), missingParts);
-        return diagnosisTaskReportBusiness.getReport(reportId);
+        return diagnosisReportBusiness.getReport(reportId);
     }
 
     /**
@@ -112,12 +112,12 @@ public class DiagnosisTaskReportSupplementBusiness {
      * @throws NoSuchElementException 报告不存在
      * @throws IllegalArgumentException 报告未完成
      */
-    private GeoDiagnosisTaskReportEntity getCompletedReport(long reportId) {
-        GeoDiagnosisTaskReportEntity report = reportId > 0 ? geoDiagnosisTaskReportDao.selectById(reportId) : null;
+    private GeoDiagnosisReportEntity getCompletedReport(long reportId) {
+        GeoDiagnosisReportEntity report = reportId > 0 ? geoDiagnosisReportDao.selectById(reportId) : null;
         if (report == null) {
             throw new NoSuchElementException("诊断报告不存在");
         }
-        if (!DiagnosisTaskReportStatus.SUCCEEDED.name().equals(report.getStatus()) || report.getSummary() == null) {
+        if (!DiagnosisReportStatus.SUCCEEDED.name().equals(report.getStatus()) || report.getSummary() == null) {
             throw new IllegalArgumentException("只有已完成的报告可以补全");
         }
         return report;

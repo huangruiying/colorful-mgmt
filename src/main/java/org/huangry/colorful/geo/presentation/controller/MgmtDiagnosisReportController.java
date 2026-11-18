@@ -1,10 +1,10 @@
 package org.huangry.colorful.geo.presentation.controller;
 
 import jakarta.annotation.Resource;
-import org.huangry.colorful.geo.application.diagnosis.DiagnosisTaskReportBusiness;
-import org.huangry.colorful.geo.application.diagnosis.DiagnosisTaskReportSupplementBusiness;
-import org.huangry.colorful.geo.application.diagnosis.model.CreateDiagnosisTaskReportRequest;
-import org.huangry.colorful.geo.application.diagnosis.model.DiagnosisTaskReportResponse;
+import org.huangry.colorful.geo.application.diagnosis.DiagnosisReportBusiness;
+import org.huangry.colorful.geo.application.diagnosis.DiagnosisReportSupplementBusiness;
+import org.huangry.colorful.geo.application.diagnosis.model.CreateDiagnosisReportRequest;
+import org.huangry.colorful.geo.application.diagnosis.model.DiagnosisReportResponse;
 import org.huangry.colorful.geo.application.diagnosis.model.DiagnosisTaskResponse;
 import org.huangry.colorful.geo.infrastructure.common.model.PageResponse;
 import org.springframework.dao.DataAccessException;
@@ -19,11 +19,11 @@ import org.springframework.web.bind.annotation.*;
  */
 @RestController
 @RequestMapping("/diagnosis-reports")
-public class MgmtDiagnosisTaskReportController {
+public class MgmtDiagnosisReportController {
 	@Resource
-	private DiagnosisTaskReportBusiness diagnosisTaskReportBusiness;
+	private DiagnosisReportBusiness diagnosisReportBusiness;
 	@Resource
-	private DiagnosisTaskReportSupplementBusiness diagnosisTaskReportSupplementBusiness;
+	private DiagnosisReportSupplementBusiness diagnosisReportSupplementBusiness;
 
 	/**
 	 * 生成诊断报告，可指定报告语言。
@@ -35,9 +35,9 @@ public class MgmtDiagnosisTaskReportController {
 	 */
 	@PostMapping("/diagnosis-tasks/{diagnosisTaskId}")
 	@ResponseStatus(HttpStatus.CREATED)
-	public DiagnosisTaskReportResponse createReport(@PathVariable("diagnosisTaskId") long diagnosisTaskId,
-	                                                @RequestBody(required = false) CreateDiagnosisTaskReportRequest request) {
-		return diagnosisTaskReportBusiness.createReport(diagnosisTaskId, request == null ? null : request.reportLanguage());
+	public DiagnosisReportResponse createReport(@PathVariable("diagnosisTaskId") long diagnosisTaskId,
+	                                                @RequestBody(required = false) CreateDiagnosisReportRequest request) {
+		return diagnosisReportBusiness.createReport(diagnosisTaskId, request == null ? null : request.reportLanguage());
 	}
 
 	/**
@@ -50,8 +50,8 @@ public class MgmtDiagnosisTaskReportController {
 	 * @return 当前页报告及总数
 	 */
 	@GetMapping
-	public PageResponse<DiagnosisTaskReportResponse> listReports(@RequestParam(value = "diagnosisTaskId", required = false) Long diagnosisTaskId, @RequestParam(value = "status", required = false) String status, @RequestParam(value = "page", defaultValue = "0") int page, @RequestParam(value = "size", defaultValue = "20") int size) {
-		return diagnosisTaskReportBusiness.listReports(diagnosisTaskId, status, page, size);
+	public PageResponse<DiagnosisReportResponse> listReports(@RequestParam(value = "diagnosisTaskId", required = false) Long diagnosisTaskId, @RequestParam(value = "status", required = false) String status, @RequestParam(value = "page", defaultValue = "0") int page, @RequestParam(value = "size", defaultValue = "20") int size) {
+		return diagnosisReportBusiness.listReports(diagnosisTaskId, status, page, size);
 	}
 
 	/**
@@ -61,8 +61,8 @@ public class MgmtDiagnosisTaskReportController {
 	 * @return 报告详情
 	 */
 	@GetMapping("/{id}")
-	public DiagnosisTaskReportResponse getReport(@PathVariable("id") long id) {
-		return diagnosisTaskReportBusiness.getReport(id);
+	public DiagnosisReportResponse getReport(@PathVariable("id") long id) {
+		return diagnosisReportBusiness.getReport(id);
 	}
 
 	/**
@@ -72,8 +72,8 @@ public class MgmtDiagnosisTaskReportController {
 	 * @return 补全后的报告详情
 	 */
 	@PostMapping("/{id}/supplement")
-	public DiagnosisTaskReportResponse supplementReport(@PathVariable("id") long id) {
-		return diagnosisTaskReportSupplementBusiness.supplementReport(id);
+	public DiagnosisReportResponse supplementReport(@PathVariable("id") long id) {
+		return diagnosisReportSupplementBusiness.supplementReport(id);
 	}
 
 	/**

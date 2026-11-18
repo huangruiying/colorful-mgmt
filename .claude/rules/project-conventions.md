@@ -55,10 +55,11 @@ infrastructure/client：外部协议、平台及浏览器适配
 | 诊断方案 | 诊断方案 | `DiagnosisPlan` | `geo_diagnosis_plan` 及问题、渠道子表 |
 | 一轮执行 | 诊断任务 | `DiagnosisTask` | `geo_diagnosis_task` |
 | 一个问题在一个渠道上的一次调用记录 | 诊断结果（单次诊断） | `DiagnosisTaskResult` | `geo_diagnosis_task_result` |
-| 一次任务的分析报告 | 诊断报告 | `DiagnosisTaskReport` | `geo_diagnosis_task_report` |
-| 报告中对单条诊断结果的分析 | 回答分析 | `DiagnosisTaskResultAnalysis` | `geo_diagnosis_task_result_analysis` |
+| 一次任务的分析报告 | 诊断报告 | `DiagnosisReport` | `geo_diagnosis_report` |
+| 报告中对单条诊断结果的分析 | 回答分析 | `DiagnosisReportResultAnalysis` | `geo_diagnosis_report_result_analysis` |
 
-- 同一业务对象的表、实体、DAO、领域服务、Business、Response、Controller、后台任务、枚举及测试类沿同一前缀命名；改名时整组一起改，控制器测试保留 `Mgmt` 前缀（如 `MgmtDiagnosisTaskReportControllerTest`）。
+- 表名（2026-11-18 用户确认）：页面上独立管理的对象（方案、任务、报告）用短名，从属的表带所属对象前缀：方案的问题与渠道、任务的诊断结果、报告的回答分析。报告仍通过 `task_id` 关联所属任务，只是表名不再体现。
+- 同一业务对象的表、实体、DAO、领域服务、Business、Response、Controller、后台任务、枚举及测试类沿同一前缀命名；改名时整组一起改，控制器测试保留 `Mgmt` 前缀（如 `MgmtDiagnosisReportControllerTest`）。
 - “诊断结果”只指单条调用记录，“诊断报告”只指整份报告，两者不互相借用；不再使用“采样”，重复调用称“重复执行次数”。
 
 ## 方法与可读性
@@ -70,7 +71,7 @@ infrastructure/client：外部协议、平台及浏览器适配
 - 日志记录实际选中渠道及必要结果，避免入口和下层重复记录同一调用，不打印问题原文、回答原文或凭据。
 - 注释解释职责、规则及必要边界，与最终实现一致；修改后删除过时的能力描述和兼容说明。
 - 方法注释写实际效果，不写模糊的动作描述：写清前置条件（如“仅失败或部分失败的任务”）、作用在哪一层对象（任务还是诊断结果）、保留什么、清除什么、后续由谁执行。例如重置任务写“非成功的诊断结果改回待执行并清空旧数据，成功结果保留，任务回到待执行由后台重新领取”，不写“重新排队”。
-- 会写多张表或改状态的方法，在方法注释里写清：写入哪些表、各写几条、写成什么状态、是否同一事务及失败如何回滚、数据来源的筛选口径，以及不负责的后续步骤由谁完成（示例：`GeoDiagnosisTaskReportService.createReport`）。步骤编号注释只写该步的目的和规则，不重复表名；代码里的实体与 DAO 已能看出读写哪张表。
+- 会写多张表或改状态的方法，在方法注释里写清：写入哪些表、各写几条、写成什么状态、是否同一事务及失败如何回滚、数据来源的筛选口径，以及不负责的后续步骤由谁完成（示例：`GeoDiagnosisReportService.createReport`）。步骤编号注释只写该步的目的和规则，不重复表名；代码里的实体与 DAO 已能看出读写哪张表。
 - `@param` 用业务名称（“诊断任务 ID”），不用“当前任务 ID”这类依赖上下文的说法。同一行为在 Controller 与 Business 的注释口径一致，改一处同步另一处；改名后同步注释和文档中的类名、表名。
 
 ## 列表与分页
@@ -113,7 +114,7 @@ infrastructure/client：外部协议、平台及浏览器适配
   - 「看回答」「看证据」这类查看入口一律经 `context.entries` 生成（或用已有的 `quoteLine`、`answerLine`、`adviceItem`）：页面上是按钮，导出时是打开随网页导出的弹窗的链接，对应回答与证据一并导出。不在渲染函数里直接创建按钮并绑定点击，导出时按钮会被去掉。
 - 筛选、排序、展开收起等其他交互不随导出带过去；需要在导出网页中可用时，在导出模块的 `exportPageScript` 中另加。
 - 页签内的子页签（如 ⑦ 的地域，2026-11-15）用带 `data-subtab-group`、`data-subtab`、`data-subtab-panel` 的链接，渲染函数不绑定事件：页面由 `diagnosis-reports.js` 委托点击后调用 `DiagnosisReportView.selectSubtab`，导出网页由 `exportPageScript` 切换。
-- 报告语言（2026-11-16 用户确认）：生成报告时选择，默认中文，存 `geo_diagnosis_task_report.report_language`。由模型写出的解析内容按报告语言书写：逐条判定的观点概括与维度名、维度归一、优化建议、⑦ 地域策略；新增需要模型书写的报告内容也把报告语言传进提示词。问题、回答、引用片段、来源和品牌名保持原文，不翻译。代码拼出的问题标题、指标名与页面固定文字保持中文，不做页面多语言。
+- 报告语言（2026-11-16 用户确认）：生成报告时选择，默认中文，存 `geo_diagnosis_report.report_language`。由模型写出的解析内容按报告语言书写：逐条判定的观点概括与维度名、维度归一、优化建议、⑦ 地域策略；新增需要模型书写的报告内容也把报告语言传进提示词。问题、回答、引用片段、来源和品牌名保持原文，不翻译。代码拼出的问题标题、指标名与页面固定文字保持中文，不做页面多语言。
 
 ## 已确认的大模型设计
 

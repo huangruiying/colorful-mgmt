@@ -8,16 +8,16 @@ import java.time.LocalDateTime;
 
 /**
  * 一份诊断报告的数据库记录：生成状态、判定口径、报告语言与冻结的汇总结果。
- * <p>对应表 geo_diagnosis_task_report，每次手动生成一份；通过 DAO 持久化，不负责判定与汇总。</p>
+ * <p>对应表 geo_diagnosis_report，每次手动生成一份；通过 DAO 持久化，不负责判定与汇总。</p>
  */
 @Data
-@TableName("geo_diagnosis_task_report")
-public class GeoDiagnosisTaskReportEntity {
+@TableName("geo_diagnosis_report")
+public class GeoDiagnosisReportEntity {
     @TableId(type = IdType.AUTO)
     private Long id;
     /** 所属诊断任务 ID；同一任务可多次生成报告，旧报告保留。 */
     private Long taskId;
-    /** 报告生成状态，保存 {@link org.huangry.colorful.geo.infrastructure.common.enums.DiagnosisTaskReportStatus} 的枚举名称。 */
+    /** 报告生成状态，保存 {@link org.huangry.colorful.geo.infrastructure.common.enums.DiagnosisReportStatus} 的枚举名称。 */
     private String status;
     /** JSON 字符串：判定所用渠道（默认渠道，即已启用渠道中分数最高者）的非敏感配置，不保存凭据；开始判定时写入。 */
     private String judgeChannelSnapshot;

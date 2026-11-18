@@ -2,6 +2,20 @@
 
 > 已讨论、暂不实施的想法记录在 [TODO.md](TODO.md)，接手时一并查看。
 
+## 当前交接：诊断报告两表改名（2026-11-18）
+
+- 用户确认表名规则：页面上独立管理的对象（方案、任务、报告）用短名，从属的表带所属对象前缀。只改名、不改逻辑，接口路径、页面、导出文件格式不变。
+  - 表：`geo_diagnosis_task_report` → `geo_diagnosis_report`，`geo_diagnosis_task_result_analysis` → `geo_diagnosis_report_result_analysis`，11 个索引与约束名同步；`001_init.sql` 已是新定义。
+  - 类前缀：`DiagnosisTaskReport` → `DiagnosisReport`，`DiagnosisTaskResultAnalysis` → `DiagnosisReportResultAnalysis`（16 个文件 `git mv`，31 个源文件替换）；用户先改名的 `GeoDiagnosisReportService`、`DiagnosisReportWorker` 字段名同步为 `geoDiagnosisReportService`；`extrateUnprocessReport` 改回 `claimNextReport`。
+  - 项目约定命名线与表名规则、`诊断报告全景.md`、本分支详细设计（第四步、库表设计、阶段六、灰度第 10 步）已同步。审计与架构复核见 [验收记录第四步](20261115_area_diagnosis/诊断问题带地域-验收.md)。
+- 验证：全量 518 项仅既有 `shouldRejectDisabledExactTaskChannel` 失败；改名脚本 [诊断报告表改名.sql](20261115_area_diagnosis/诊断报告表改名.sql) 在临时库按“本机真实结构 + 真实数据”和“改名前 001_init.sql”两种情况执行成功，结果与新 `001_init.sql` 的表结构完全一致。
+- 本机库已执行（2026-11-18 19:10，用户先停了 8010）：执行前核对为 0 / 6 / 4，无打开的事务和表锁；两表先备份到会话临时目录 `scratchpad/backup-20261118-report-rename.sql`（报告 12 行、回答分析 652 行，重启电脑可能被清掉）。执行后只剩新表名，行数 12 / 652 不变，回答分析 → 报告 → 任务关联 652 行对上，约束与索引全是新名，两表结构与新 `001_init.sql` 完全一致；本机原来缺的按状态领取报告索引已按新名 `idx_diagnosis_report_status` 补建。
+- 8010 需在 IDE 里用新代码重新启动；启动前它的 `target/classes` 已是新类。
+- 操作失误与恢复：验证脚本时把含 `USE colorful_geo` 的 `001_init.sql` 导入临时库，在真实库新建了两张新名空表（19:01:51、0 行）。已核对只多这两张、无数据后删除，真实库恢复原状（7 张诊断表，报告 12 行、回答分析 652 行）；没有改动已有表和数据。
+- 服务器：逐条命令见 [诊断报告表改名-服务器执行](20261115_area_diagnosis/诊断报告表改名-服务器执行.md)。顺序：上传代码与改名脚本（上传脚本不带 `.doc`，脚本单独 scp）→ 旧 app 运行时先 `build` 新镜像 → 确认无生成中报告后停 app → 整库备份 → 补 2026-11-16 两次加列（已有跳过，report_language 用旧表名须在改名前）→ 核对 6 / 4 / 0 → 改名 → 核对 → 用新镜像启动。服务器库有没有那条状态索引未知，脚本两种情况都能处理。手册里的核对语句已在本机按同样写法试跑通过。
+- Git：16 个改名已由 `git mv` 记入暂存区，内容修改与两个新文件（改名脚本、服务器执行步骤）未暂存；未提交。
+- 下一步：用户在 IDE 里用新代码启动 8010，打开报告列表、详情，试一次项目导出导入；服务器按执行步骤改库并部署；之后回到“诊断报告分阶段执行”（三段还是五段等决定待用户确认）。
+
 ## 当前交接：功能地图（2026-11-18）
 
 - 新增 [功能地图.html](功能地图.html)：总览加 11 个功能各一张流程图（项目档案、诊断方案、诊断任务、诊断报告、内容优化、预发布、数据导入导出、模型渠道、浏览器登录管理、浏览器人工接管、管理后台登录），依据 `.doc` 文档并按当前代码核对。图用 Mermaid 11.4.1（jsDelivr）在浏览器里画，离线时显示各图源码。

@@ -3,11 +3,11 @@ package org.huangry.colorful.geo.domain.service.diagnosis;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
-import org.huangry.colorful.geo.infrastructure.repository.GeoDiagnosisTaskResultAnalysisDao;
+import org.huangry.colorful.geo.infrastructure.repository.GeoDiagnosisReportResultAnalysisDao;
 import org.huangry.colorful.geo.infrastructure.repository.GeoDiagnosisTaskDao;
-import org.huangry.colorful.geo.infrastructure.repository.GeoDiagnosisTaskReportDao;
+import org.huangry.colorful.geo.infrastructure.repository.GeoDiagnosisReportDao;
 import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisTaskEntity;
-import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisTaskReportEntity;
+import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisReportEntity;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -20,10 +20,10 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /** 创建诊断报告的前置校验与有效回答口径；事务回滚与 SQL 实际执行另用真实 MySQL 验证。 */
-class GeoDiagnosisTaskReportServiceTest {
+class GeoDiagnosisReportServiceTest {
     private final GeoDiagnosisReportService service = new GeoDiagnosisReportService();
-    private final GeoDiagnosisTaskReportDao reports = mock(GeoDiagnosisTaskReportDao.class);
-    private final GeoDiagnosisTaskResultAnalysisDao analyses = mock(GeoDiagnosisTaskResultAnalysisDao.class);
+    private final GeoDiagnosisReportDao reports = mock(GeoDiagnosisReportDao.class);
+    private final GeoDiagnosisReportResultAnalysisDao analyses = mock(GeoDiagnosisReportResultAnalysisDao.class);
     private final GeoDiagnosisTaskDao tasks = mock(GeoDiagnosisTaskDao.class);
 
     /** 已结束且有成功结果的任务创建待生成报告，只纳入成功且未截断的回答。 */
@@ -32,17 +32,17 @@ class GeoDiagnosisTaskReportServiceTest {
         for (String status : List.of("SUCCEEDED", "PARTIAL_FAILED")) {
             reset(reports, analyses);
             when(tasks.selectOne(any())).thenReturn(task(status));
-            when(reports.insert(any(GeoDiagnosisTaskReportEntity.class))).thenAnswer(invocation -> {
-                invocation.<GeoDiagnosisTaskReportEntity>getArgument(0).setId(9L);
+            when(reports.insert(any(GeoDiagnosisReportEntity.class))).thenAnswer(invocation -> {
+                invocation.<GeoDiagnosisReportEntity>getArgument(0).setId(9L);
                 return 1;
             });
             when(analyses.insertPendingFromResults(9L, 30L, "SUCCEEDED", "length", "PENDING")).thenReturn(5);
-            var saved = new GeoDiagnosisTaskReportEntity();
+            var saved = new GeoDiagnosisReportEntity();
             saved.setId(9L);
             when(reports.selectById(9L)).thenReturn(saved);
 
             assertSame(saved, service.createReport(30L, " 英语 "));
-            var inserted = org.mockito.ArgumentCaptor.forClass(GeoDiagnosisTaskReportEntity.class);
+            var inserted = org.mockito.ArgumentCaptor.forClass(GeoDiagnosisReportEntity.class);
             verify(reports).insert(inserted.capture());
             assertEquals(30L, inserted.getValue().getTaskId());
             assertEquals("PENDING", inserted.getValue().getStatus());
@@ -54,14 +54,14 @@ class GeoDiagnosisTaskReportServiceTest {
     @Test
     void shouldDefaultReportLanguageToChineseAndRejectTooLong() {
         when(tasks.selectOne(any())).thenReturn(task("SUCCEEDED"));
-        when(reports.insert(any(GeoDiagnosisTaskReportEntity.class))).thenAnswer(invocation -> {
-            invocation.<GeoDiagnosisTaskReportEntity>getArgument(0).setId(9L);
+        when(reports.insert(any(GeoDiagnosisReportEntity.class))).thenAnswer(invocation -> {
+            invocation.<GeoDiagnosisReportEntity>getArgument(0).setId(9L);
             return 1;
         });
         when(analyses.insertPendingFromResults(9L, 30L, "SUCCEEDED", "length", "PENDING")).thenReturn(5);
 
         service.createReport(30L, "  ");
-        var inserted = org.mockito.ArgumentCaptor.forClass(GeoDiagnosisTaskReportEntity.class);
+        var inserted = org.mockito.ArgumentCaptor.forClass(GeoDiagnosisReportEntity.class);
         verify(reports).insert(inserted.capture());
         assertEquals("中文", inserted.getValue().getReportLanguage());
 
@@ -79,7 +79,7 @@ class GeoDiagnosisTaskReportServiceTest {
             when(tasks.selectOne(any())).thenReturn(task(status));
             assertThrows(IllegalArgumentException.class, () -> service.createReport(30L, null));
         }
-        verify(reports, never()).insert(any(GeoDiagnosisTaskReportEntity.class));
+        verify(reports, never()).insert(any(GeoDiagnosisReportEntity.class));
     }
 
     /** 已有报告正在生成时拒绝，避免重复判定计费。 */
@@ -89,15 +89,15 @@ class GeoDiagnosisTaskReportServiceTest {
         when(reports.exists(any())).thenReturn(true);
 
         assertThrows(IllegalArgumentException.class, () -> service.createReport(30L, null));
-        verify(reports, never()).insert(any(GeoDiagnosisTaskReportEntity.class));
+        verify(reports, never()).insert(any(GeoDiagnosisReportEntity.class));
     }
 
     /** 没有有效回答时抛出异常，由事务回滚已插入的报告。 */
     @Test
     void shouldRejectWhenNoValidAnswer() {
         when(tasks.selectOne(any())).thenReturn(task("PARTIAL_FAILED"));
-        when(reports.insert(any(GeoDiagnosisTaskReportEntity.class))).thenAnswer(invocation -> {
-            invocation.<GeoDiagnosisTaskReportEntity>getArgument(0).setId(9L);
+        when(reports.insert(any(GeoDiagnosisReportEntity.class))).thenAnswer(invocation -> {
+            invocation.<GeoDiagnosisReportEntity>getArgument(0).setId(9L);
             return 1;
         });
         when(analyses.insertPendingFromResults(anyLong(), anyLong(), any(), any(), any())).thenReturn(0);
@@ -109,19 +109,19 @@ class GeoDiagnosisTaskReportServiceTest {
     /** 优先续跑中断的 RUNNING 报告，不重复改状态；没有时把最早的 PENDING 报告置为 RUNNING。 */
     @Test
     void shouldClaimRunningReportBeforePendingOne() {
-        var running = new GeoDiagnosisTaskReportEntity();
+        var running = new GeoDiagnosisReportEntity();
         running.setId(3L);
         running.setStatus("RUNNING");
         when(reports.selectOne(any())).thenReturn(running);
-        assertSame(running, service.extrateUnprocessReport());
+        assertSame(running, service.claimNextReport());
         verify(reports, never()).update(isNull(), any());
 
-        var pending = new GeoDiagnosisTaskReportEntity();
+        var pending = new GeoDiagnosisReportEntity();
         pending.setId(4L);
         pending.setStatus("PENDING");
         when(reports.selectOne(any())).thenReturn(null, pending);
         when(reports.update(isNull(), any())).thenReturn(1);
-        var claimed = service.extrateUnprocessReport();
+        var claimed = service.claimNextReport();
         assertEquals("RUNNING", claimed.getStatus());
         assertNotNull(claimed.getStartedAt());
     }
@@ -129,7 +129,7 @@ class GeoDiagnosisTaskReportServiceTest {
     /** 只有待判定记录能保存结果，写入数量不符时明确失败，避免覆盖已有判定。 */
     @Test
     void shouldRejectSavingAnalysisThatIsNoLongerPending() {
-        var analysis = new org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisTaskResultAnalysisEntity();
+        var analysis = new org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisReportResultAnalysisEntity();
         analysis.setId(8L);
         when(analyses.update(isNull(), any())).thenReturn(0);
 
@@ -140,8 +140,8 @@ class GeoDiagnosisTaskReportServiceTest {
     @BeforeEach
     void setup() {
         var assistant = new MapperBuilderAssistant(new MybatisConfiguration(), "diagnosis-report-test");
-        for (Class<?> type : List.of(GeoDiagnosisTaskEntity.class, GeoDiagnosisTaskReportEntity.class,
-                org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisTaskResultAnalysisEntity.class)) {
+        for (Class<?> type : List.of(GeoDiagnosisTaskEntity.class, GeoDiagnosisReportEntity.class,
+                org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisReportResultAnalysisEntity.class)) {
             TableInfoHelper.initTableInfo(assistant, type);
         }
         ReflectionTestUtils.setField(service, "reportDao", reports);

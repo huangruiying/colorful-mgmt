@@ -20,9 +20,9 @@ import org.huangry.colorful.geo.infrastructure.client.llm.LLMStrategyRouter;
 import org.huangry.colorful.geo.infrastructure.client.llm.model.LLMQueryRequest;
 import org.huangry.colorful.geo.infrastructure.client.llm.model.LLMResponse;
 import org.huangry.colorful.geo.infrastructure.common.exceptions.LLMClientException;
-import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisTaskResultAnalysisEntity;
+import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisReportResultAnalysisEntity;
 import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisTaskResultEntity;
-import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisTaskReportEntity;
+import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisReportEntity;
 import org.huangry.colorful.geo.infrastructure.repository.entity.GeoLlmChannelEntity;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -38,7 +38,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /** 报告生成编排：冻结默认判定渠道、逐条判定、失败不重试继续下一条、全部判定后汇总并生成优化建议；不连接数据库与模型。 */
-class DiagnosisTaskReportWorkerTest {
+class DiagnosisReportWorkerTest {
     private final DiagnosisReportWorker worker = new DiagnosisReportWorker();
     private final GeoDiagnosisReportService service = mock(GeoDiagnosisReportService.class);
     private final ResultJudgePrompt analysisPrompt = mock(ResultJudgePrompt.class);
@@ -116,7 +116,7 @@ class DiagnosisTaskReportWorkerTest {
     @Test
     void shouldFailReportWhenNoAnswerJudged() {
         when(service.findNextPendingAnalysis(9L)).thenReturn(null);
-        var failed = new GeoDiagnosisTaskResultAnalysisEntity();
+        var failed = new GeoDiagnosisReportResultAnalysisEntity();
         failed.setStatus("FAILED");
         when(service.loadAnswers(9L)).thenReturn(List.of(new ReportAnswer(failed, new GeoDiagnosisTaskResultEntity())));
 
@@ -143,9 +143,9 @@ class DiagnosisTaskReportWorkerTest {
         Connection lease = mock(Connection.class);
         when(lease.isValid(anyInt())).thenReturn(true);
         ReflectionTestUtils.setField(worker, "lease", lease);
-        ReflectionTestUtils.setField(worker, "geoDiagnosisTaskReportService", service);
+        ReflectionTestUtils.setField(worker, "geoDiagnosisReportService", service);
         var resultAnalyzer = new ResultAnalyzer();
-        ReflectionTestUtils.setField(resultAnalyzer, "geoDiagnosisTaskReportService", service);
+        ReflectionTestUtils.setField(resultAnalyzer, "geoDiagnosisReportService", service);
         ReflectionTestUtils.setField(resultAnalyzer, "resultRuleAnalyzer", new ResultRuleAnalyzer());
         ReflectionTestUtils.setField(resultAnalyzer, "resultJudgePrompt", analysisPrompt);
         ReflectionTestUtils.setField(resultAnalyzer, "diagnosisTaskSnapshots", snapshots);
@@ -184,8 +184,8 @@ class DiagnosisTaskReportWorkerTest {
     }
 
     /** @return 待生成的报告，报告语言为英语，尚未冻结判定渠道 */
-    private GeoDiagnosisTaskReportEntity report() {
-        var report = new GeoDiagnosisTaskReportEntity();
+    private GeoDiagnosisReportEntity report() {
+        var report = new GeoDiagnosisReportEntity();
         report.setId(9L);
         report.setTaskId(30L);
         report.setStatus("RUNNING");
@@ -197,8 +197,8 @@ class DiagnosisTaskReportWorkerTest {
      * @param id 分析记录 ID
      * @return 待判定记录
      */
-    private GeoDiagnosisTaskResultAnalysisEntity analysis(long id) {
-        var analysis = new GeoDiagnosisTaskResultAnalysisEntity();
+    private GeoDiagnosisReportResultAnalysisEntity analysis(long id) {
+        var analysis = new GeoDiagnosisReportResultAnalysisEntity();
         analysis.setId(id);
         analysis.setTaskResultId(id);
         analysis.setStatus("PENDING");
@@ -206,8 +206,8 @@ class DiagnosisTaskReportWorkerTest {
     }
 
     /** @return 判定成功的分析记录 */
-    private GeoDiagnosisTaskResultAnalysisEntity succeeded() {
-        var analysis = new GeoDiagnosisTaskResultAnalysisEntity();
+    private GeoDiagnosisReportResultAnalysisEntity succeeded() {
+        var analysis = new GeoDiagnosisReportResultAnalysisEntity();
         analysis.setStatus("SUCCEEDED");
         return analysis;
     }

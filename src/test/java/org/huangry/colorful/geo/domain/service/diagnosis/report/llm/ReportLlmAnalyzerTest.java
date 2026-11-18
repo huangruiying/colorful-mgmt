@@ -7,7 +7,7 @@ import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisReportServi
 import org.huangry.colorful.geo.infrastructure.client.llm.LLMClient;
 import org.huangry.colorful.geo.infrastructure.client.llm.model.LLMResponse;
 import org.huangry.colorful.geo.infrastructure.common.exceptions.LLMClientException;
-import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisTaskResultAnalysisEntity;
+import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisReportResultAnalysisEntity;
 import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisTaskResultEntity;
 import org.huangry.colorful.geo.infrastructure.repository.entity.GeoLlmChannelEntity;
 import org.junit.jupiter.api.Test;
@@ -78,7 +78,7 @@ class ReportLlmAnalyzerTest {
 
     /** @return 一条判定成功、带“价格偏高”保留意见的回答 */
     private List<ReportAnswer> answersWithDimension() {
-        var analysis = new GeoDiagnosisTaskResultAnalysisEntity();
+        var analysis = new GeoDiagnosisReportResultAnalysisEntity();
         analysis.setStatus("SUCCEEDED");
         analysis.setPoints("[{\"type\":\"RESERVATION\",\"dimension\":\"价格偏高\",\"quote\":\"贵\"}]");
         return List.of(new ReportAnswer(analysis, new GeoDiagnosisTaskResultEntity()));

@@ -6,4 +6,4 @@ package org.huangry.colorful.geo.application.diagnosis.model;
  *
  * @param reportLanguage 报告语言，如中文、英语，最多 50 字符；观点概括、维度名、建议与地域策略按此语言书写，问题、回答、引用等原文不翻译
  */
-public record CreateDiagnosisTaskReportRequest(String reportLanguage) {}
+public record CreateDiagnosisReportRequest(String reportLanguage) {}

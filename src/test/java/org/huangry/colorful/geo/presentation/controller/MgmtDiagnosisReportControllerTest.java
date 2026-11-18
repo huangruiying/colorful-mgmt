@@ -1,8 +1,8 @@
 package org.huangry.colorful.geo.presentation.controller;
 
-import org.huangry.colorful.geo.application.diagnosis.DiagnosisTaskReportBusiness;
-import org.huangry.colorful.geo.application.diagnosis.DiagnosisTaskReportSupplementBusiness;
-import org.huangry.colorful.geo.application.diagnosis.model.DiagnosisTaskReportResponse;
+import org.huangry.colorful.geo.application.diagnosis.DiagnosisReportBusiness;
+import org.huangry.colorful.geo.application.diagnosis.DiagnosisReportSupplementBusiness;
+import org.huangry.colorful.geo.application.diagnosis.model.DiagnosisReportResponse;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -17,16 +17,16 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 /** 报告接口契约：生成返回 201，补全返回 200，校验失败 400，缺失 404，内部异常不透传。 */
-class MgmtDiagnosisTaskReportControllerTest {
-    private final DiagnosisTaskReportBusiness business = mock(DiagnosisTaskReportBusiness.class);
-    private final DiagnosisTaskReportSupplementBusiness supplementBusiness = mock(DiagnosisTaskReportSupplementBusiness.class);
+class MgmtDiagnosisReportControllerTest {
+    private final DiagnosisReportBusiness business = mock(DiagnosisReportBusiness.class);
+    private final DiagnosisReportSupplementBusiness supplementBusiness = mock(DiagnosisReportSupplementBusiness.class);
     private final MockMvc mvc = createMvc();
 
     /** 生成报告返回 201 与判定进度，请求体带报告语言；刷新前的旧页面不带请求体，按未指定语言交给业务层；业务拒绝映射为 400 并带原因。 */
     @Test
     void shouldCreateReportOrExplainRejection() throws Exception {
-        when(business.createReport(30L, "英语")).thenReturn(new DiagnosisTaskReportResponse(9L, 30L, "加油诊断", "团油", "PENDING",
-                new DiagnosisTaskReportResponse.ProgressResponse(70, 70, 0, 0), null, null, "英语", null, null, null, null, null, null));
+        when(business.createReport(30L, "英语")).thenReturn(new DiagnosisReportResponse(9L, 30L, "加油诊断", "团油", "PENDING",
+                new DiagnosisReportResponse.ProgressResponse(70, 70, 0, 0), null, null, "英语", null, null, null, null, null, null));
         when(business.createReport(30L, null)).thenThrow(new IllegalArgumentException("该诊断任务已有报告正在生成，请等待完成"));
 
         mvc.perform(post("/diagnosis-reports/diagnosis-tasks/30").contentType(MediaType.APPLICATION_JSON).content("{\"reportLanguage\":\"英语\"}"))
@@ -43,8 +43,8 @@ class MgmtDiagnosisTaskReportControllerTest {
     /** 补全返回补全后的报告；已补全等业务拒绝映射为 400 并带原因。 */
     @Test
     void shouldSupplementReportOrExplainRejection() throws Exception {
-        when(supplementBusiness.supplementReport(9L)).thenReturn(new DiagnosisTaskReportResponse(9L, 30L, "加油诊断", "团油", "SUCCEEDED",
-                new DiagnosisTaskReportResponse.ProgressResponse(70, 0, 70, 0), null, "v1", "中文", null, null, null, null, null, null))
+        when(supplementBusiness.supplementReport(9L)).thenReturn(new DiagnosisReportResponse(9L, 30L, "加油诊断", "团油", "SUCCEEDED",
+                new DiagnosisReportResponse.ProgressResponse(70, 0, 70, 0), null, "v1", "中文", null, null, null, null, null, null))
                 .thenThrow(new IllegalArgumentException("该报告内容完整，无需补全"));
 
         mvc.perform(post("/diagnosis-reports/9/supplement")).andExpect(status().isOk()).andExpect(jsonPath("$.id").value(9));
@@ -65,9 +65,9 @@ class MgmtDiagnosisTaskReportControllerTest {
 
     /** @return 注入模拟业务的独立 MVC */
     private MockMvc createMvc() {
-        var controller = new MgmtDiagnosisTaskReportController();
-        ReflectionTestUtils.setField(controller, "diagnosisTaskReportBusiness", business);
-        ReflectionTestUtils.setField(controller, "diagnosisTaskReportSupplementBusiness", supplementBusiness);
+        var controller = new MgmtDiagnosisReportController();
+        ReflectionTestUtils.setField(controller, "diagnosisReportBusiness", business);
+        ReflectionTestUtils.setField(controller, "diagnosisReportSupplementBusiness", supplementBusiness);
         return MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler()).build();
     }

@@ -49,7 +49,7 @@ public class ProjectInfoImportExportDao {
 			case QUESTION, PLAN_CHANNEL -> "plan_id IN (" + plans + ")";
 			case TASK -> "project_id = ? OR plan_id IN (" + plans + ")";
 			case RESULT, REPORT -> "task_id IN (" + tasks + ")";
-			case ANALYSIS -> "report_id IN (SELECT id FROM geo_diagnosis_task_report WHERE task_id IN (" + tasks + "))";
+			case ANALYSIS -> "report_id IN (SELECT id FROM geo_diagnosis_report WHERE task_id IN (" + tasks + "))";
 		};
 		Object[] parameters = switch (table) {
 			case TASK, RESULT, REPORT, ANALYSIS -> new Object[]{projectId, projectId};

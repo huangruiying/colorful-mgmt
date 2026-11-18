@@ -6,8 +6,8 @@ import org.huangry.colorful.geo.infrastructure.repository.GeoDiagnosisPlanChanne
 import org.huangry.colorful.geo.infrastructure.repository.GeoDiagnosisPlanDao;
 import org.huangry.colorful.geo.infrastructure.repository.GeoDiagnosisPlanQuestionDao;
 import org.huangry.colorful.geo.infrastructure.repository.GeoDiagnosisTaskDao;
-import org.huangry.colorful.geo.infrastructure.repository.GeoDiagnosisTaskReportDao;
-import org.huangry.colorful.geo.infrastructure.repository.GeoDiagnosisTaskResultAnalysisDao;
+import org.huangry.colorful.geo.infrastructure.repository.GeoDiagnosisReportDao;
+import org.huangry.colorful.geo.infrastructure.repository.GeoDiagnosisReportResultAnalysisDao;
 import org.huangry.colorful.geo.infrastructure.repository.GeoDiagnosisTaskResultDao;
 import org.huangry.colorful.geo.infrastructure.repository.GeoProjectInfoDao;
 import org.junit.jupiter.api.BeforeEach;
@@ -32,7 +32,7 @@ class GeoProjectInfoServiceDeleteProjectTest {
     /** 项目删除涉及的八张表及外键指向的渠道表。 */
     private static final List<String> TABLES = List.of("geo_llm_channel", "geo_project_info", "geo_diagnosis_plan",
             "geo_diagnosis_plan_question", "geo_diagnosis_plan_channel", "geo_diagnosis_task", "geo_diagnosis_task_result",
-            "geo_diagnosis_task_report", "geo_diagnosis_task_result_analysis");
+            "geo_diagnosis_report", "geo_diagnosis_report_result_analysis");
     private JdbcTemplate jdbc;
     private GeoProjectInfoService service;
 
@@ -57,8 +57,8 @@ class GeoProjectInfoServiceDeleteProjectTest {
         ReflectionTestUtils.setField(service, "planChannelDao", mapper(session, GeoDiagnosisPlanChannelDao.class));
         ReflectionTestUtils.setField(service, "taskDao", mapper(session, GeoDiagnosisTaskDao.class));
         ReflectionTestUtils.setField(service, "taskResultDao", mapper(session, GeoDiagnosisTaskResultDao.class));
-        ReflectionTestUtils.setField(service, "taskReportDao", mapper(session, GeoDiagnosisTaskReportDao.class));
-        ReflectionTestUtils.setField(service, "taskResultAnalysisDao", mapper(session, GeoDiagnosisTaskResultAnalysisDao.class));
+        ReflectionTestUtils.setField(service, "taskReportDao", mapper(session, GeoDiagnosisReportDao.class));
+        ReflectionTestUtils.setField(service, "taskResultAnalysisDao", mapper(session, GeoDiagnosisReportResultAnalysisDao.class));
         jdbc.update("INSERT INTO geo_llm_channel (id,channel_code,channel_name,provider_code,strategy_bean_name,base_url,api_key,model_name,score,enabled) VALUES (7,'TEST','渠道','MOCK','mock','https://example.test','secret','model-a',1,TRUE)");
     }
 
@@ -90,7 +90,7 @@ class GeoProjectInfoServiceDeleteProjectTest {
         assertEquals(0, count("geo_project_info WHERE id = 10"));
         assertEquals(2, count("geo_diagnosis_plan"));
         assertEquals(List.of(200L), jdbc.queryForList("SELECT id FROM geo_diagnosis_task", Long.class));
-        assertEquals(1, count("geo_diagnosis_task_result_analysis"));
+        assertEquals(1, count("geo_diagnosis_report_result_analysis"));
     }
 
     /** 没有方案和任务的项目只删除基础档案。 */
@@ -110,7 +110,7 @@ class GeoProjectInfoServiceDeleteProjectTest {
 
         assertThrows(NoSuchElementException.class, () -> service.deleteProject(10));
         assertEquals(1, count("geo_project_info"));
-        assertEquals(1, count("geo_diagnosis_task_result_analysis"));
+        assertEquals(1, count("geo_diagnosis_report_result_analysis"));
     }
 
     /**
@@ -127,8 +127,8 @@ class GeoProjectInfoServiceDeleteProjectTest {
         jdbc.update("INSERT INTO geo_diagnosis_plan_channel (id,plan_id,channel_id) VALUES (?,?,7)", baseId + 2, baseId);
         jdbc.update("INSERT INTO geo_diagnosis_task (id,plan_id,project_id,plan_snapshot,status) VALUES (?,?,?,'{}',?)", baseId, baseId, projectId, taskStatus);
         jdbc.update("INSERT INTO geo_diagnosis_task_result (id,task_id,question_id,question_sort_order,question_snapshot,channel_id,channel_snapshot,repeat_index,status) VALUES (?,?,?,0,'{}',7,'{}',1,'RUNNING')", baseId + 3, baseId, baseId + 1);
-        jdbc.update("INSERT INTO geo_diagnosis_task_report (id,task_id,status) VALUES (?,?,?)", baseId + 4, baseId, reportStatus);
-        jdbc.update("INSERT INTO geo_diagnosis_task_result_analysis (id,report_id,task_result_id,status) VALUES (?,?,?,'PENDING')", baseId + 5, baseId + 4, baseId + 3);
+        jdbc.update("INSERT INTO geo_diagnosis_report (id,task_id,status) VALUES (?,?,?)", baseId + 4, baseId, reportStatus);
+        jdbc.update("INSERT INTO geo_diagnosis_report_result_analysis (id,report_id,task_result_id,status) VALUES (?,?,?,'PENDING')", baseId + 5, baseId + 4, baseId + 3);
     }
 
     /**
