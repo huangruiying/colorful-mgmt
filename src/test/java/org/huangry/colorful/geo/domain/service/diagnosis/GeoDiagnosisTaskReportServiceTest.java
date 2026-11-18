@@ -21,7 +21,7 @@ import static org.mockito.Mockito.*;
 
 /** 创建诊断报告的前置校验与有效回答口径；事务回滚与 SQL 实际执行另用真实 MySQL 验证。 */
 class GeoDiagnosisTaskReportServiceTest {
-    private final GeoDiagnosisTaskReportService service = new GeoDiagnosisTaskReportService();
+    private final GeoDiagnosisReportService service = new GeoDiagnosisReportService();
     private final GeoDiagnosisTaskReportDao reports = mock(GeoDiagnosisTaskReportDao.class);
     private final GeoDiagnosisTaskResultAnalysisDao analyses = mock(GeoDiagnosisTaskResultAnalysisDao.class);
     private final GeoDiagnosisTaskDao tasks = mock(GeoDiagnosisTaskDao.class);

@@ -38,7 +38,7 @@ import java.util.stream.Collectors;
  */
 @Service
 @Slf4j
-public class GeoDiagnosisTaskReportService {
+public class GeoDiagnosisReportService {
     /** 输出达到上限的结束原因；这类回答不完整，不纳入分析。 */
     private static final String TRUNCATED_FINISH_REASON = "length";
     /** 未指定报告语言时使用中文；表字段默认值也是中文，供本字段加入前的报告和早期导出文件使用。 */

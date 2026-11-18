@@ -12,8 +12,8 @@ import org.huangry.colorful.geo.domain.service.diagnosis.report.analyze.ResultJu
 import org.huangry.colorful.geo.domain.service.diagnosis.report.analyze.ResultRuleAnalyzer;
 import org.huangry.colorful.geo.domain.service.diagnosis.report.summary.ReportSummarizer;
 import org.huangry.colorful.geo.domain.service.diagnosis.DiagnosisTaskSnapshots;
-import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisTaskReportService;
-import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisTaskReportService.ReportAnswer;
+import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisReportService;
+import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisReportService.ReportAnswer;
 import org.huangry.colorful.geo.domain.service.llm.GeoLlmChannelService;
 import org.huangry.colorful.geo.infrastructure.client.llm.LLMClient;
 import org.huangry.colorful.geo.infrastructure.client.llm.LLMStrategyRouter;
@@ -40,7 +40,7 @@ import static org.mockito.Mockito.*;
 /** 报告生成编排：冻结默认判定渠道、逐条判定、失败不重试继续下一条、全部判定后汇总并生成优化建议；不连接数据库与模型。 */
 class DiagnosisTaskReportWorkerTest {
     private final DiagnosisTaskReportWorker worker = new DiagnosisTaskReportWorker();
-    private final GeoDiagnosisTaskReportService service = mock(GeoDiagnosisTaskReportService.class);
+    private final GeoDiagnosisReportService service = mock(GeoDiagnosisReportService.class);
     private final ResultJudgePrompt analysisPrompt = mock(ResultJudgePrompt.class);
     private final ReportSummarizer summarizer = mock(ReportSummarizer.class);
     private final LLMClient llmClient = mock(LLMClient.class);

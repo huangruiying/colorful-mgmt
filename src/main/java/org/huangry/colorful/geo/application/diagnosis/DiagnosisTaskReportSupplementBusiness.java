@@ -7,8 +7,8 @@ import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.huangry.colorful.geo.application.diagnosis.model.DiagnosisTaskReportResponse;
 import org.huangry.colorful.geo.domain.service.diagnosis.DiagnosisTaskSnapshots;
-import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisTaskReportService.ReportAnswer;
-import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisTaskReportService;
+import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisReportService.ReportAnswer;
+import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisReportService;
 import org.huangry.colorful.geo.domain.service.diagnosis.report.llm.ReportLlmAnalyzer;
 import org.huangry.colorful.geo.domain.service.diagnosis.report.summary.ReportSummarizer;
 import org.huangry.colorful.geo.domain.service.llm.GeoLlmChannelService;
@@ -39,7 +39,7 @@ public class DiagnosisTaskReportSupplementBusiness {
     @Resource
     private GeoDiagnosisTaskReportDao geoDiagnosisTaskReportDao;
     @Resource
-    private GeoDiagnosisTaskReportService geoDiagnosisTaskReportService;
+    private GeoDiagnosisReportService geoDiagnosisTaskReportService;
     @Resource
     private ReportSummarizer reportSummarizer;
     @Resource

@@ -2,7 +2,7 @@ package org.huangry.colorful.geo.domain.service.diagnosis.report.summary;
 
 import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
-import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisTaskReportService.ReportAnswer;
+import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisReportService.ReportAnswer;
 
 /**
  * 诊断报告统计用的一条回答事实：由入口汇总类从诊断结果与回答分析整理而来，各页签只读不改。

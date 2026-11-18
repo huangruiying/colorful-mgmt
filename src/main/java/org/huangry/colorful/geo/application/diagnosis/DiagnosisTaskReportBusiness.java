@@ -6,7 +6,7 @@ import jakarta.annotation.Resource;
 import org.huangry.colorful.geo.application.diagnosis.model.DiagnosisTaskReportResponse;
 import org.huangry.colorful.geo.domain.service.diagnosis.DiagnosisTaskSnapshots;
 import org.huangry.colorful.geo.domain.service.diagnosis.report.summary.ReportSummarizer;
-import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisTaskReportService;
+import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisReportService;
 import org.huangry.colorful.geo.infrastructure.common.enums.DiagnosisTaskReportStatus;
 import org.huangry.colorful.geo.infrastructure.common.enums.DiagnosisTaskResultAnalysisStatus;
 import org.huangry.colorful.geo.infrastructure.common.model.PageQuery;
@@ -62,7 +62,7 @@ import java.util.stream.Collectors;
 @Service
 public class DiagnosisTaskReportBusiness {
     @Resource
-    private GeoDiagnosisTaskReportService reportService;
+    private GeoDiagnosisReportService reportService;
     @Resource
     private GeoDiagnosisTaskReportDao reportDao;
     @Resource

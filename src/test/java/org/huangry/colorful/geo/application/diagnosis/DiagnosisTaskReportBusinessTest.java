@@ -4,7 +4,7 @@ import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.huangry.colorful.geo.domain.service.diagnosis.DiagnosisTaskSnapshots;
-import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisTaskReportService;
+import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisReportService;
 import org.huangry.colorful.geo.infrastructure.repository.GeoDiagnosisTaskResultAnalysisDao;
 import org.huangry.colorful.geo.infrastructure.repository.GeoDiagnosisTaskDao;
 import org.huangry.colorful.geo.infrastructure.repository.GeoDiagnosisTaskReportDao;
@@ -25,7 +25,7 @@ import static org.mockito.Mockito.*;
 /** 报告列表与详情的组装：名称取自任务快照、判定进度按状态汇总、汇总只在详情返回、输入校验。 */
 class DiagnosisTaskReportBusinessTest {
     private final DiagnosisTaskReportBusiness business = new DiagnosisTaskReportBusiness();
-    private final GeoDiagnosisTaskReportService service = mock(GeoDiagnosisTaskReportService.class);
+    private final GeoDiagnosisReportService service = mock(GeoDiagnosisReportService.class);
     private final GeoDiagnosisTaskReportDao reports = mock(GeoDiagnosisTaskReportDao.class);
     private final GeoDiagnosisTaskResultAnalysisDao analyses = mock(GeoDiagnosisTaskResultAnalysisDao.class);
     private final GeoDiagnosisTaskDao tasks = mock(GeoDiagnosisTaskDao.class);

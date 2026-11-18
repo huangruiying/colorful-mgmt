@@ -7,8 +7,8 @@ import jakarta.annotation.PreDestroy;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.huangry.colorful.geo.domain.service.diagnosis.DiagnosisTaskSnapshots;
-import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisTaskReportService.ReportAnswer;
-import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisTaskReportService;
+import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisReportService.ReportAnswer;
+import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisReportService;
 import org.huangry.colorful.geo.domain.service.diagnosis.report.analyze.ResultAnalyzer;
 import org.huangry.colorful.geo.domain.service.diagnosis.report.analyze.ResultJudgePrompt;
 import org.huangry.colorful.geo.domain.service.diagnosis.report.llm.ReportLlmAnalyzer;
@@ -49,7 +49,7 @@ public class DiagnosisTaskReportWorker {
 	private static final String LOCK_NAME = ":diagnosis-report-worker";
 
 	@Resource
-	private GeoDiagnosisTaskReportService geoDiagnosisTaskReportService;
+	private GeoDiagnosisReportService geoDiagnosisTaskReportService;
 	@Resource
 	private ResultAnalyzer resultAnalyzer;
 	@Resource

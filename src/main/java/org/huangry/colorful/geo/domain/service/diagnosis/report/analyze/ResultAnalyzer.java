@@ -5,7 +5,7 @@ import com.alibaba.fastjson.JSONObject;
 import com.alibaba.fastjson.serializer.SerializerFeature;
 import jakarta.annotation.Resource;
 import org.huangry.colorful.geo.domain.service.diagnosis.DiagnosisTaskSnapshots;
-import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisTaskReportService;
+import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisReportService;
 import org.huangry.colorful.geo.infrastructure.client.llm.LLMClient;
 import org.huangry.colorful.geo.infrastructure.client.llm.model.LLMQueryRequest;
 import org.huangry.colorful.geo.infrastructure.common.exceptions.LLMClientException;
@@ -23,7 +23,7 @@ import java.util.Set;
 @Component
 public class ResultAnalyzer {
     @Resource
-    private GeoDiagnosisTaskReportService geoDiagnosisTaskReportService;
+    private GeoDiagnosisReportService geoDiagnosisTaskReportService;
     @Resource
     private ResultRuleAnalyzer resultRuleAnalyzer;
     @Resource

@@ -6,7 +6,7 @@ import com.alibaba.fastjson.JSONObject;
 import org.huangry.colorful.geo.domain.service.diagnosis.report.llm.ReportLlmAnalyzer;
 import org.huangry.colorful.geo.domain.service.diagnosis.report.summary.ReportSummarizer;
 import org.huangry.colorful.geo.domain.service.diagnosis.DiagnosisTaskSnapshots;
-import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisTaskReportService;
+import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisReportService;
 import org.huangry.colorful.geo.domain.service.llm.GeoLlmChannelService;
 import org.huangry.colorful.geo.infrastructure.repository.GeoDiagnosisTaskReportDao;
 import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisTaskReportEntity;
@@ -28,7 +28,7 @@ import static org.mockito.Mockito.*;
 class DiagnosisTaskReportSupplementBusinessTest {
     private final DiagnosisTaskReportSupplementBusiness business = new DiagnosisTaskReportSupplementBusiness();
     private final GeoDiagnosisTaskReportDao reportDao = mock(GeoDiagnosisTaskReportDao.class);
-    private final GeoDiagnosisTaskReportService reportService = mock(GeoDiagnosisTaskReportService.class);
+    private final GeoDiagnosisReportService reportService = mock(GeoDiagnosisReportService.class);
     private final ReportSummarizer summarizer = mock(ReportSummarizer.class);
     private final ReportLlmAnalyzer llmAnalyzer = mock(ReportLlmAnalyzer.class);
     private final GeoLlmChannelService channelService = mock(GeoLlmChannelService.class);
