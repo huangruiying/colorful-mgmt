@@ -1,6 +1,7 @@
 package org.huangry.colorful.geo.presentation.task;
 
 import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
 import com.alibaba.fastjson.serializer.SerializerFeature;
 import jakarta.annotation.PreDestroy;
@@ -22,7 +23,9 @@ import org.huangry.colorful.geo.infrastructure.common.exceptions.LLMClientExcept
 import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisReportEntity;
 import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisReportResultAnalysisEntity;
 import org.huangry.colorful.geo.infrastructure.repository.entity.GeoLlmChannelEntity;
+import org.huangry.colorful.geo.presentation.task.DiagnosisReportContentProgress.Step;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataAccessException;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.core.task.TaskExecutor;
@@ -43,6 +46,7 @@ import javax.sql.DataSource;
  * 诊断报告离线 Job：领取报告，分两段生成——第 1 段逐条判定有效回答，第 2 段生成报告内容（维度归一、统计、优化建议、地域策略）。
  * <p>start 向统一线程池提交单个轮询，tick 领取报告，generate 从报告停在的段开始编排两段，close 通知退出。
  * 任一段有失败都暂停报告，等用户重试该段或忽略失败继续，不自动重试；段与状态的变化都交给报告服务写库。
+ * 第 2 段逐步记录四个子步骤的进度（{@link DiagnosisReportContentProgress}），供页面显示走到哪一步。
  * 数据库会话锁限定同一库唯一执行者，中断的报告下次领取时续跑当前段：判定段接着判剩余记录，第 2 段整段重做。</p>
  */
 @Component
@@ -264,69 +268,118 @@ public class DiagnosisReportWorker {
 
 	/**
 	 * 第 2 段：用判定结果生成报告内容，四步都跑完再看结果——全部成功则冻结内容、报告完成；有失败时保存本次内容并暂停，写明哪几步失败。
-	 * <p>维度归一、优化建议或地域策略失败时内容照常生成（维度保持原名，建议或该地域策略标记为生成失败），用户可整段重试或忽略失败继续。
-	 * 生成过程中出现程序异常（如统计出错）时重试也会重复失败，不保存内容并暂停，修复后再重新生成；读取和写库失败交由轮询续跑。</p>
+	 * <p>每步开始、结束时更新子步骤进度供页面显示，进度从头记录。维度归一、优化建议或地域策略失败时内容照常生成（维度保持原名，
+	 * 建议或该地域策略标记为生成失败），用户可整段重试或忽略失败继续。生成过程中出现程序异常（如统计出错）时重试也会重复失败，
+	 * 出错的那一步记为失败，不保存内容并暂停，修复后再重新生成；读取和写库失败交由轮询续跑。</p>
 	 *
 	 * @param report  停在第 2 段的报告
 	 * @param project 项目资料
 	 * @param channel 判定渠道，用于维度归一、优化建议与地域策略调用
 	 */
 	private void generateContent(GeoDiagnosisReportEntity report, JSONObject project, GeoLlmChannelEntity channel) {
-		// 1. 读取全部回答及判定结果
+		// 1. 读取全部回答及判定结果，第 2 段进度从头记录
 		List<ReportAnswer> answers = geoDiagnosisReportService.loadAnswers(report.getId());
+		DiagnosisReportContentProgress progress = new DiagnosisReportContentProgress();
 		// 2. 依次归一、统计、写建议和地域策略；程序异常时不保存内容，暂停等修复，避免轮询反复重跑产生模型费用
-		ReportContent content;
+		JSONObject summary;
 		try {
-			content = buildContent(report, project, channel, answers);
+			summary = buildContent(report, project, channel, answers, progress);
 		} catch (RuntimeException exception) {
 			log.error("诊断报告内容生成出错 reportId={}, errorType={}", report.getId(), exception.getClass().getSimpleName(), exception);
-			geoDiagnosisReportService.updateReportContentPaused(report.getId(), null, "报告内容生成出错，请联系管理员修复后重新生成报告内容");
+			progress.failRunningStep("程序出错");
+			geoDiagnosisReportService.updateReportContentPaused(report.getId(), null, "报告内容生成出错，请联系管理员修复后重新生成报告内容",
+					progress.toJson());
 			return;
 		}
-		// 3. 全部成功则冻结内容、报告完成；有失败则保存本次内容并暂停，等用户重试或忽略失败继续
-		String summary = JSON.toJSONString(content.summary(), SerializerFeature.WriteMapNullValue);
-		if (content.failedSteps().isEmpty()) {
-			geoDiagnosisReportService.finishReport(report.getId(), summary);
+		// 3. 全部成功则冻结内容、报告完成；有失败则保存本次内容并暂停，等用户重试或忽略失败继续；进度随结果一起写入
+		String content = JSON.toJSONString(summary, SerializerFeature.WriteMapNullValue);
+		List<String> failures = progress.listFailures();
+		if (failures.isEmpty()) {
+			geoDiagnosisReportService.finishReport(report.getId(), content, progress.toJson());
 			log.info("诊断报告生成完成 reportId={}, answers={}", report.getId(), answers.size());
 		} else {
-			geoDiagnosisReportService.updateReportContentPaused(report.getId(), summary, String.join("；", content.failedSteps()));
-			log.warn("诊断报告内容有失败，已暂停 reportId={}, failedSteps={}", report.getId(), content.failedSteps());
+			geoDiagnosisReportService.updateReportContentPaused(report.getId(), content, String.join("；", failures), progress.toJson());
+			log.warn("诊断报告内容有失败，已暂停 reportId={}, failures={}", report.getId(), failures);
 		}
 	}
 
 	/**
-	 * 依次执行第 2 段的四步，失败的步骤只记下、不中断：维度归一 → 统计 ①–⑦ → 优化建议 → 各地域提升策略；维度名、建议与策略按报告语言书写。
+	 * 依次执行第 2 段的四步并逐步保存进度，失败的步骤只记下、不中断：合并同义维度 → 统计 ①–⑦ → 写优化建议 → 写地域策略；
+	 * 维度名、建议与策略按报告语言书写。
 	 *
-	 * @param report  报告，提供报告语言、判定渠道快照与提示词版本
-	 * @param project 项目资料
-	 * @param channel 判定渠道
-	 * @param answers 报告的全部回答
-	 * @return 本次生成的内容及失败的步骤；全部成功时失败步骤为空
+	 * @param report   报告，提供报告语言、判定渠道快照与提示词版本
+	 * @param project  项目资料
+	 * @param channel  判定渠道
+	 * @param answers  报告的全部回答
+	 * @param progress 本次第 2 段的进度，各步结果记在这里
+	 * @return 本次生成的报告内容，失败的建议或地域策略已标记为生成失败
 	 */
-	private ReportContent buildContent(GeoDiagnosisReportEntity report, JSONObject project, GeoLlmChannelEntity channel, List<ReportAnswer> answers) {
+	private JSONObject buildContent(GeoDiagnosisReportEntity report, JSONObject project, GeoLlmChannelEntity channel, List<ReportAnswer> answers,
+	                                DiagnosisReportContentProgress progress) {
 		String reportLanguage = report.getReportLanguage();
-		List<String> failedSteps = new ArrayList<>();
-		// 1. 合并同义维度，失败时维度保持原名
+		// 1. 合并同义维度，失败时维度保持原名、记为失败，后面照常统计
+		saveContentProgress(report, progress.startStep(Step.DIMENSION, null));
 		DimensionNormalization dimensions = dimensionNormalizer.normalizeDimensions(answers, channel, report.getId(), reportLanguage);
-		if (dimensions.failed()) {
-			failedSteps.add("合并同义维度失败");
-		}
+		saveContentProgress(report, progress.finishDimensionStep(dimensions));
 		// 2. 统计 ①–⑦ 的指标、规则问题与各地域机会，只是计算，不调用模型
+		saveContentProgress(report, progress.startStep(Step.SUMMARY, null));
 		JSONObject summary = reportSummarizer.buildSummary(answers, project, dimensions.mapping(),
 				(JSONObject) diagnosisTaskSnapshots.parseSnapshot(report.getJudgeChannelSnapshot()), report.getPromptVersion());
+		JSONArray regions = summary.getJSONObject("region").getJSONArray("regions");
+		saveContentProgress(report, progress.finishSummaryStep(summary.getJSONArray("issues").size(), regions.size()));
 		// 3. 基于规则发现的问题写优化建议
+		saveContentProgress(report, progress.startStep(Step.ADVICE, null));
 		JSONObject advice = tacticGenerator.generateAdvice(summary.getJSONArray("issues"), project, channel, report.getId(), reportLanguage);
 		summary.put("advice", advice);
-		if (TacticGenerator.isFailed(advice)) {
-			failedSteps.add("写优化建议失败");
+		saveContentProgress(report, progress.finishAdviceStep(advice));
+		// 4. ⑦ 逐个地域写提升策略，每写完一个地域更新一次进度
+		writeRegionStrategies(report, regions, project, channel, progress);
+		return summary;
+	}
+
+	/**
+	 * ⑦ 逐个地域写提升策略并写入该地域的 strategy，每开始一个地域更新一次进度（已写 x / 共 y 个）；
+	 * 没有机会的地域不调用模型，某个地域失败只记在该地域上、接着写下一个，最后按各地域结果记下这一步。
+	 *
+	 * @param report   报告，提供报告语言
+	 * @param regions  统计出的 ⑦ 地域列表，策略写回各地域
+	 * @param project  项目资料
+	 * @param channel  判定渠道
+	 * @param progress 本次第 2 段的进度
+	 */
+	private void writeRegionStrategies(GeoDiagnosisReportEntity report, JSONArray regions, JSONObject project, GeoLlmChannelEntity channel,
+	                                   DiagnosisReportContentProgress progress) {
+		List<String> failedRegions = new ArrayList<>();
+		int generatedCount = 0;
+		// 1. 逐个地域写策略，失败只记下地域名，没有机会的不计入已写
+		for (int index = 0; index < regions.size(); index++) {
+			saveContentProgress(report, progress.startStep(Step.REGION_STRATEGY, index + " / " + regions.size()));
+			JSONObject region = regions.getJSONObject(index);
+			JSONObject strategy = tacticGenerator.generateRegionStrategy(region, project, channel, report.getId(), report.getReportLanguage());
+			region.put("strategy", strategy);
+			if (TacticGenerator.isFailed(strategy)) {
+				failedRegions.add(region.getString("name"));
+			} else if (! TacticGenerator.isSkipped(strategy)) {
+				generatedCount++;
+			}
 		}
-		// 4. ⑦ 每个有机会的地域写提升策略，地域之间互不影响
-		List<String> failedRegions = tacticGenerator.generateRegionStrategies(summary.getJSONObject("region"), project, channel,
-				report.getId(), reportLanguage);
-		if (! failedRegions.isEmpty()) {
-			failedSteps.add("写地域策略失败：" + String.join("、", failedRegions));
+		// 2. 按各地域结果记下这一步
+		saveContentProgress(report, progress.finishRegionStrategyStep(regions.size(), generatedCount, failedRegions));
+	}
+
+	/**
+	 * 保存第 2 段的子步骤进度，供页面显示第 2 段走到哪一步。
+	 * <p>进度不是核心数据：写库失败只记警告，不中断第 2 段，下一次更新或结束时会写入最新进度。</p>
+	 *
+	 * @param report   停在第 2 段、生成中的报告
+	 * @param progress 本次第 2 段的进度
+	 */
+	private void saveContentProgress(GeoDiagnosisReportEntity report, DiagnosisReportContentProgress progress) {
+		try {
+			geoDiagnosisReportService.updateReportContentProgress(report.getId(), progress.toJson());
+		} catch (DataAccessException exception) {
+			log.warn("诊断报告进度保存失败 reportId={}, errorType={}", report.getId(), exception.getClass().getSimpleName());
 		}
-		return new ReportContent(summary, failedSteps);
 	}
 
 	/**
@@ -395,14 +448,5 @@ public class DiagnosisReportWorker {
 		} catch (SQLException exception) {
 			log.warn("诊断报告执行锁关闭失败 errorType={}", exception.getClass().getSimpleName());
 		}
-	}
-
-	/**
-	 * 第 2 段生成的报告内容。
-	 *
-	 * @param summary     报告内容，失败的建议或地域策略已标记为生成失败
-	 * @param failedSteps 失败步骤的说明，按执行顺序；全部成功时为空
-	 */
-	private record ReportContent(JSONObject summary, List<String> failedSteps) {
 	}
 }

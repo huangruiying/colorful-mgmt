@@ -232,7 +232,7 @@ public class GeoDiagnosisReportService {
     }
 
     /**
-     * 把报告重新排队：写入后台要执行的段，状态改为待生成，清空暂停原因与结束时间；只改仍是读取时状态的报告。
+     * 把报告重新排队：写入后台要执行的段，状态改为待生成，清空暂停原因、结束时间和上一次第 2 段的子步骤进度；只改仍是读取时状态的报告。
      * @param report 已确认可重新排队的报告
      * @param stage 后台领取后从哪一段开始
      * @throws IllegalArgumentException 报告状态已被其他操作改变，未写入
@@ -244,7 +244,8 @@ public class GeoDiagnosisReportService {
                 .set(GeoDiagnosisReportEntity::getStage, stage.name())
                 .set(GeoDiagnosisReportEntity::getStatus, DiagnosisReportStatus.PENDING.name())
                 .set(GeoDiagnosisReportEntity::getErrorMessage, null)
-                .set(GeoDiagnosisReportEntity::getFinishedAt, null));
+                .set(GeoDiagnosisReportEntity::getFinishedAt, null)
+                .set(GeoDiagnosisReportEntity::getContentProgress, null));
         if (changed != 1) {
             throw new IllegalArgumentException("报告状态已变化，请刷新后再试");
         }
@@ -479,17 +480,33 @@ public class GeoDiagnosisReportService {
     }
 
     /**
-     * 第 2 段全部成功后冻结报告内容并完成报告；只更新 RUNNING 报告。
+     * 保存第 2 段的子步骤进度，供页面显示第 2 段走到哪一步；只改生成中、停在第 2 段的报告，其他状态不写入也不报错。
      * @param reportId 报告 ID
-     * @param summary 第 2 段生成的报告内容 JSON
+     * @param contentProgress 子步骤进度 JSON
      */
     @Transactional
-    public void finishReport(long reportId, String summary) {
+    public void updateReportContentProgress(long reportId, String contentProgress) {
+        reportDao.update(null, new LambdaUpdateWrapper<GeoDiagnosisReportEntity>()
+                .eq(GeoDiagnosisReportEntity::getId, reportId)
+                .eq(GeoDiagnosisReportEntity::getStatus, DiagnosisReportStatus.RUNNING.name())
+                .eq(GeoDiagnosisReportEntity::getStage, DiagnosisReportStage.CONTENT.name())
+                .set(GeoDiagnosisReportEntity::getContentProgress, contentProgress));
+    }
+
+    /**
+     * 第 2 段全部成功后冻结报告内容并完成报告，子步骤进度一并写入；只更新 RUNNING 报告。
+     * @param reportId 报告 ID
+     * @param summary 第 2 段生成的报告内容 JSON
+     * @param contentProgress 第 2 段结束时的子步骤进度 JSON
+     */
+    @Transactional
+    public void finishReport(long reportId, String summary, String contentProgress) {
         reportDao.update(null, new LambdaUpdateWrapper<GeoDiagnosisReportEntity>()
                 .eq(GeoDiagnosisReportEntity::getId, reportId)
                 .eq(GeoDiagnosisReportEntity::getStatus, DiagnosisReportStatus.RUNNING.name())
                 .set(GeoDiagnosisReportEntity::getStatus, DiagnosisReportStatus.SUCCEEDED.name())
                 .set(GeoDiagnosisReportEntity::getSummary, summary)
+                .set(GeoDiagnosisReportEntity::getContentProgress, contentProgress)
                 .set(GeoDiagnosisReportEntity::getFinishedAt, LocalDateTime.now()));
     }
 
@@ -510,19 +527,21 @@ public class GeoDiagnosisReportService {
     /**
      * 第 2 段有失败时保存本次生成的内容并暂停报告；只改生成中的报告。
      * <p>写入 geo_diagnosis_report 1 条：summary 替换为本次内容（内容生成出错时清空，上一次的内容不再保留），status = PAUSED，
-     * error_message 写明哪几步失败。</p>
+     * error_message 写明哪几步失败，content_progress 写入结束时的子步骤进度。</p>
      * @param reportId 报告 ID
      * @param summary 本次生成的内容 JSON，失败的建议或地域策略已标记为生成失败；内容生成出错时为 null
      * @param reason 脱敏后的暂停原因
+     * @param contentProgress 第 2 段结束时的子步骤进度 JSON，失败的步骤已标记
      */
     @Transactional
-    public void updateReportContentPaused(long reportId, String summary, String reason) {
+    public void updateReportContentPaused(long reportId, String summary, String reason, String contentProgress) {
         reportDao.update(null, new LambdaUpdateWrapper<GeoDiagnosisReportEntity>()
                 .eq(GeoDiagnosisReportEntity::getId, reportId)
                 .eq(GeoDiagnosisReportEntity::getStatus, DiagnosisReportStatus.RUNNING.name())
                 .set(GeoDiagnosisReportEntity::getStatus, DiagnosisReportStatus.PAUSED.name())
                 .set(GeoDiagnosisReportEntity::getSummary, summary)
-                .set(GeoDiagnosisReportEntity::getErrorMessage, reason));
+                .set(GeoDiagnosisReportEntity::getErrorMessage, reason)
+                .set(GeoDiagnosisReportEntity::getContentProgress, contentProgress));
     }
 
     /**

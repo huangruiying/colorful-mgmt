@@ -25,6 +25,12 @@ public record DiagnosisReportResponse(
         String stage,
         /** 逐条判定进度，由分析记录实时统计。 */
         ProgressResponse progress,
+        /**
+         * 第 2 段（生成报告内容）的子步骤进度：steps 按执行顺序，每项 key 为 DIMENSION 合并同义维度 / SUMMARY 统计 / ADVICE 写优化建议 /
+         * REGION_STRATEGY 写地域策略，status 为 PENDING / RUNNING / SUCCEEDED / FAILED / SKIPPED（无需执行），detail 为说明；
+         * 还没运行过第 2 段或重新排队后为空。只用于显示。
+         */
+        JSONObject contentProgress,
         /** 判定渠道的非敏感快照，开始判定后才有值。 */
         JSONObject judgeChannel,
         /** 判定提示词版本。 */

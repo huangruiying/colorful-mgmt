@@ -246,6 +246,8 @@ class GeoDiagnosisReportServiceTest {
         service.updateReportContentProgress(9L, "{\"steps\":[]}");
         var progressUpdate = (LambdaUpdateWrapper<?>) captureReportUpdate();
         assertSets(progressUpdate, "content_progress", "{\"steps\":[]}");
+        // 条件里的取值在生成 WHERE 片段时才写入参数表，先生成再核对只改生成中、停在第 2 段的报告
+        assertTrue(progressUpdate.getSqlSegment().contains("stage"));
         assertTrue(progressUpdate.getParamNameValuePairs().values().containsAll(List.of("RUNNING", "CONTENT")));
 
         reset(reports);

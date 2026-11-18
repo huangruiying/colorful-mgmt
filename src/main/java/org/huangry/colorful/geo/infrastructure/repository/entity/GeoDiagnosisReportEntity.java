@@ -29,6 +29,11 @@ public class GeoDiagnosisReportEntity {
     private String reportLanguage;
     /** JSON 字符串：报告内容（汇总指标、主要发现、优化建议与各地域策略）；第 2 段结束时写入，暂停时保存已生成的内容，完成后不随规则或数据变化重算，用户重新生成报告内容时整份替换。 */
     private String summary;
+    /**
+     * JSON 字符串：第 2 段（生成报告内容）四个子步骤的状态与说明，执行中逐步更新，结构见 DiagnosisReportContentProgress；
+     * 只用于页面显示，不参与重试判断。重新排队时清空，还没运行过第 2 段的报告为空。
+     */
+    private String contentProgress;
     /** 脱敏后的暂停或失败原因，不保存远程异常原文；用户重试、重跑或忽略失败继续时清空。 */
     private String errorMessage;
     /** 后台最近一次领取执行的时间；新建的报告尚未领取时为空。 */

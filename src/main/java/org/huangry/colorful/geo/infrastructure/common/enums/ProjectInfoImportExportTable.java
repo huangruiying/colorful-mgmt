@@ -38,7 +38,7 @@ public enum ProjectInfoImportExportTable {
 	/**
 	 * 不会被后台领取的诊断报告（已完成、已暂停、失败）及报告内容。
 	 */
-	REPORT("reports", "geo_diagnosis_report", "id,task_id,status,stage,judge_channel_snapshot,prompt_version,report_language,summary,error_message,started_at,finished_at,created_at,updated_at"),
+	REPORT("reports", "geo_diagnosis_report", "id,task_id,status,stage,judge_channel_snapshot,prompt_version,report_language,summary,content_progress,error_message,started_at,finished_at,created_at,updated_at"),
 	/**
 	 * 报告中的回答判定和人工修正。
 	 */
@@ -49,13 +49,14 @@ public enum ProjectInfoImportExportTable {
 	 */
 	public static final Set<String> JSON_COLUMNS = Set.of("aliases", "competitors", "keywords", "plan_snapshot",
 			"question_snapshot", "channel_snapshot", "citations", "usage_info", "judge_channel_snapshot",
-			"summary", "brands", "points", "sources");
+			"summary", "content_progress", "brands", "points", "sources");
 	/**
 	 * 文件中可以缺省的列：文件格式 v1 发布后才新增的列，早期导出的文件没有，导入时不写这一列，由数据库默认值补上。
 	 * region 为问题地域，缺省即不分地域；report_language 为报告语言，缺省即中文；
-	 * stage 为报告执行到哪一段，缺省即判定段，早期文件里只有已完成和失败的报告，段不影响查看，重跑时会重新写入。
+	 * stage 为报告执行到哪一段，缺省即判定段，早期文件里只有已完成和失败的报告，段不影响查看，重跑时会重新写入；
+	 * content_progress 为第 2 段子步骤进度，只用于显示，缺省为空。
 	 */
-	public static final Set<String> OPTIONAL_COLUMNS = Set.of("region", "report_language", "stage");
+	public static final Set<String> OPTIONAL_COLUMNS = Set.of("region", "report_language", "stage", "content_progress");
 	/**
 	 * 导出文件中的分区名称，属于文件格式；改名会导致已导出的文件无法导入。
 	 */
