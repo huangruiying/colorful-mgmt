@@ -39,7 +39,7 @@ import static org.mockito.Mockito.*;
 
 /** 报告生成编排：冻结默认判定渠道、逐条判定、失败不重试继续下一条、全部判定后汇总并生成优化建议；不连接数据库与模型。 */
 class DiagnosisTaskReportWorkerTest {
-    private final DiagnosisTaskReportWorker worker = new DiagnosisTaskReportWorker();
+    private final DiagnosisReportWorker worker = new DiagnosisReportWorker();
     private final GeoDiagnosisReportService service = mock(GeoDiagnosisReportService.class);
     private final ResultJudgePrompt analysisPrompt = mock(ResultJudgePrompt.class);
     private final ReportSummarizer summarizer = mock(ReportSummarizer.class);

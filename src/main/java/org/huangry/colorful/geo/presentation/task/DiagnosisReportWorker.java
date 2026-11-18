@@ -42,7 +42,7 @@ import javax.sql.DataSource;
  */
 @Component
 @Slf4j
-public class DiagnosisTaskReportWorker {
+public class DiagnosisReportWorker {
 	/**
 	 * 数据库会话锁名称，与诊断任务执行器的锁区分。
 	 */
