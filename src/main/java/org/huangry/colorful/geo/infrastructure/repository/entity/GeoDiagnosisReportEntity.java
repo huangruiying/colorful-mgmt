@@ -19,19 +19,21 @@ public class GeoDiagnosisReportEntity {
     private Long taskId;
     /** 报告生成状态，保存 {@link org.huangry.colorful.geo.infrastructure.common.enums.DiagnosisReportStatus} 的枚举名称。 */
     private String status;
+    /** 报告执行到或停在哪一段，保存 {@link org.huangry.colorful.geo.infrastructure.common.enums.DiagnosisReportStage} 的枚举名称；与 status 一起表示进度。 */
+    private String stage;
     /** JSON 字符串：判定所用渠道（默认渠道，即已启用渠道中分数最高者）的非敏感配置，不保存凭据；开始判定时写入。 */
     private String judgeChannelSnapshot;
     /** 判定提示词版本，用于说明报告结论的判定口径。 */
     private String promptVersion;
     /** 报告语言，生成报告时选择，默认中文：解析出来的观点概括、维度名、建议与地域策略按此语言书写，问题、回答、引用等原文不翻译。 */
     private String reportLanguage;
-    /** JSON 字符串：冻结的汇总指标、主要发现与优化建议；生成成功后写入，之后不随规则或数据变化重算。 */
+    /** JSON 字符串：报告内容（汇总指标、主要发现、优化建议与各地域策略）；第 2 段结束时写入，暂停时保存已生成的内容，完成后不随规则或数据变化重算，用户重新生成报告内容时整份替换。 */
     private String summary;
-    /** 脱敏后的生成失败原因，不保存远程异常原文。 */
+    /** 脱敏后的暂停或失败原因，不保存远程异常原文；用户重试、重跑或忽略失败继续时清空。 */
     private String errorMessage;
-    /** 开始判定的时间，待生成时为空。 */
+    /** 后台最近一次领取执行的时间；新建的报告尚未领取时为空。 */
     private LocalDateTime startedAt;
-    /** 生成结束的时间，尚未结束时为空。 */
+    /** 报告完成或失败的时间；生成中、已暂停或重新排队时为空。 */
     private LocalDateTime finishedAt;
     /** 由数据库生成的创建时间，插入后重新查询回读。 */
     private LocalDateTime createdAt;

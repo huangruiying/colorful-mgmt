@@ -11,7 +11,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 回答分析表 geo_diagnosis_report_result_analysis 的读写入口：提供 BaseMapper 增删改查，以及批量建立待判定记录、按报告统计判定进度。
+ * 回答分析表 geo_diagnosis_report_result_analysis 的读写入口：提供 BaseMapper 增删改查，以及批量建立待判定记录、按报告统计判定进度与失败原因。
  * <p>同一份报告里每条诊断结果只有一条分析，由数据库唯一键保证；事务由调用方负责。</p>
  */
 @Mapper
@@ -44,4 +44,15 @@ public interface GeoDiagnosisReportResultAnalysisDao extends BaseMapper<GeoDiagn
             "<foreach collection='reportIds' item='id' open='(' separator=',' close=')'>#{id}</foreach>",
             "GROUP BY report_id,status", "</script>"})
     List<Map<String, Object>> countStatuses(@Param("reportIds") List<Long> reportIds);
+
+    /**
+     * 按失败原因统计一份报告中判定失败的分析记录数量，供暂停原因使用。
+     * <p>哪个状态算判定失败由调用方传入，DAO 不判断业务口径。</p>
+     * @param reportId 报告 ID
+     * @param failedStatus 判定失败的状态
+     * @return 每行含 error_message（可能缺省）、analysis_count，按数量从多到少
+     */
+    @Select("SELECT error_message,COUNT(*) AS analysis_count FROM geo_diagnosis_report_result_analysis "
+            + "WHERE report_id=#{reportId} AND status=#{failedStatus} GROUP BY error_message ORDER BY analysis_count DESC,error_message")
+    List<Map<String, Object>> countFailureReasons(@Param("reportId") long reportId, @Param("failedStatus") String failedStatus);
 }

@@ -36,9 +36,9 @@ public enum ProjectInfoImportExportTable {
 	 */
 	RESULT("results", "geo_diagnosis_task_result", "id,task_id,question_id,question_sort_order,question_snapshot,channel_id,channel_snapshot,repeat_index,status,answer_text,citations,model_name,usage_info,duration_ms,finish_reason,raw_response,error_message,started_at,finished_at,created_at,updated_at"),
 	/**
-	 * 已结束的诊断报告及冻结汇总。
+	 * 不会被后台领取的诊断报告（已完成、已暂停、失败）及报告内容。
 	 */
-	REPORT("reports", "geo_diagnosis_report", "id,task_id,status,judge_channel_snapshot,prompt_version,report_language,summary,error_message,started_at,finished_at,created_at,updated_at"),
+	REPORT("reports", "geo_diagnosis_report", "id,task_id,status,stage,judge_channel_snapshot,prompt_version,report_language,summary,error_message,started_at,finished_at,created_at,updated_at"),
 	/**
 	 * 报告中的回答判定和人工修正。
 	 */
@@ -52,9 +52,10 @@ public enum ProjectInfoImportExportTable {
 			"summary", "brands", "points", "sources");
 	/**
 	 * 文件中可以缺省的列：文件格式 v1 发布后才新增的列，早期导出的文件没有，导入时不写这一列，由数据库默认值补上。
-	 * region 为问题地域，缺省即不分地域；report_language 为报告语言，缺省即中文。
+	 * region 为问题地域，缺省即不分地域；report_language 为报告语言，缺省即中文；
+	 * stage 为报告执行到哪一段，缺省即判定段，早期文件里只有已完成和失败的报告，段不影响查看，重跑时会重新写入。
 	 */
-	public static final Set<String> OPTIONAL_COLUMNS = Set.of("region", "report_language");
+	public static final Set<String> OPTIONAL_COLUMNS = Set.of("region", "report_language", "stage");
 	/**
 	 * 导出文件中的分区名称，属于文件格式；改名会导致已导出的文件无法导入。
 	 */

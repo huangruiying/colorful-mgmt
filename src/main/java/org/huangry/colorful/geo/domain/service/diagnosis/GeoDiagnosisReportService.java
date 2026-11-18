@@ -5,7 +5,9 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.alibaba.fastjson.JSONObject;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.huangry.colorful.geo.domain.service.llm.GeoLlmChannelService;
 import org.huangry.colorful.geo.infrastructure.common.enums.DiagnosisReportResultAnalysisStatus;
+import org.huangry.colorful.geo.infrastructure.common.enums.DiagnosisReportStage;
 import org.huangry.colorful.geo.infrastructure.common.enums.DiagnosisReportStatus;
 import org.huangry.colorful.geo.infrastructure.common.enums.DiagnosisTaskResultStatus;
 import org.huangry.colorful.geo.infrastructure.common.enums.DiagnosisTaskStatus;
@@ -23,7 +25,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -32,9 +36,11 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * 诊断报告的领域服务：报告与回答分析的持久化、状态流转，以及生成报告时读取所需数据；每次手动生成创建一份新报告，旧报告保留。
- * <p>状态：PENDING → RUNNING → SUCCEEDED / FAILED；单条分析：PENDING → SUCCEEDED / FAILED。
- * 只分析成功且未因输出上限截断的诊断结果；判定与汇总由后台执行器编排，本服务事务只覆盖数据库操作，不包含模型调用。</p>
+ * 诊断报告的领域服务：报告与回答分析的持久化、段与状态流转，以及生成报告时读取所需数据；每次手动生成创建一份新报告，旧报告保留。
+ * <p>报告分两段执行（stage）：JUDGE 判定每条回答 → CONTENT 生成报告内容。状态：PENDING → RUNNING → SUCCEEDED，
+ * 任一段有失败时 → PAUSED；用户重判、重新生成报告内容或忽略失败继续时，由本服务校验后改状态，后台执行器下次轮询领取。
+ * 段与状态的每次变化都在这里写库并带上当前状态条件，执行器与接口不各自改表。单条分析：PENDING → SUCCEEDED / FAILED，重判时失败的改回 PENDING。
+ * 只分析成功且未因输出上限截断的诊断结果；判定与生成内容由后台执行器编排，本服务事务只覆盖数据库操作，不包含模型调用。</p>
  */
 @Service
 @Slf4j
@@ -58,13 +64,15 @@ public class GeoDiagnosisReportService {
     private ContentPublishRecordDao publishRecordDao;
     @Resource
     private DiagnosisTaskSnapshots snapshots;
+    @Resource
+    private GeoLlmChannelService channelService;
 
     /**
      * 把 诊断任务 转成 待处理的诊断报告(初始化)
-     * 为已结束的诊断任务创建一份待生成的报告，并为每条有效回答建立待判定记录；不调用模型，判定与汇总由 DiagnosisReportWorker 后台完成。
+     * 为已结束的诊断任务创建一份待生成的报告，并为每条有效回答建立待判定记录；不调用模型，判定与生成内容由 DiagnosisReportWorker 后台完成。
      * <p>写入（同一事务，任一步失败整体回滚）：
      * <ul>
-     *   <li>geo_diagnosis_report：新增 1 条，status = PENDING，记下报告语言，判定渠道与汇总留空；</li>
+     *   <li>geo_diagnosis_report：新增 1 条，stage = JUDGE、status = PENDING，记下报告语言，判定渠道与内容留空；</li>
      *   <li>geo_diagnosis_report_result_analysis：每条有效回答新增 1 条，status = PENDING，判定字段留空。</li>
      * </ul>
      * 有效回答：geo_diagnosis_task_result 中 status = SUCCEEDED 且结束原因不是 length（未被截断）。</p>
@@ -87,16 +95,12 @@ public class GeoDiagnosisReportService {
             throw new IllegalArgumentException("诊断任务尚未结束或全部失败，无法生成报告");
         }
         // 2. 同一任务同时只允许一份报告在生成，避免重复判定计费
-        boolean generating = reportDao.exists(new LambdaQueryWrapper<GeoDiagnosisReportEntity>()
-                .eq(GeoDiagnosisReportEntity::getTaskId, taskId)
-                .in(GeoDiagnosisReportEntity::getStatus, DiagnosisReportStatus.PENDING.name(), DiagnosisReportStatus.RUNNING.name()));
-        if (generating) {
-            throw new IllegalArgumentException("该诊断任务已有报告正在生成，请等待完成");
-        }
+        validateNoReportGenerating(taskId);
         // 3. 创建报告并为有效回答批量建立待判定记录；没有有效回答时整体回滚
         GeoDiagnosisReportEntity report = new GeoDiagnosisReportEntity();
         report.setTaskId(taskId);
         report.setStatus(DiagnosisReportStatus.PENDING.name());
+        report.setStage(DiagnosisReportStage.JUDGE.name());
         report.setReportLanguage(language);
         reportDao.insert(report);
         int analysisCount = analysisDao.insertPendingFromResults(report.getId(), taskId,
@@ -127,7 +131,219 @@ public class GeoDiagnosisReportService {
     }
 
     /**
-     * 领取下一份要生成的报告：优先继续上次中断的 RUNNING 报告，其次领取最早的 PENDING 报告并改为 RUNNING。
+     * 确认同一诊断任务当前没有报告在生成（待生成或生成中）；已暂停的报告不算，后台不会自动领取它。
+     * @param taskId 诊断任务 ID
+     * @throws IllegalArgumentException 已有报告在生成
+     */
+    private void validateNoReportGenerating(long taskId) {
+        boolean generating = reportDao.exists(new LambdaQueryWrapper<GeoDiagnosisReportEntity>()
+                .eq(GeoDiagnosisReportEntity::getTaskId, taskId)
+                .in(GeoDiagnosisReportEntity::getStatus, DiagnosisReportStatus.PENDING.name(), DiagnosisReportStatus.RUNNING.name()));
+        if (generating) {
+            throw new IllegalArgumentException("该诊断任务已有报告正在生成，请等待完成");
+        }
+    }
+
+    /**
+     * 重判一份报告中没有判定成功的回答：判定失败的记录改回待判定，判定成功的保留；报告回到待生成、从判定段重新开始，
+     * 判完由后台接着生成报告内容，已完成报告的原有内容届时被替换。
+     * <p>写入（同一事务，任一步失败整体回滚）：
+     * <ul>
+     *   <li>geo_diagnosis_report_result_analysis：本报告 status = FAILED 的记录改为 PENDING，失败原因与来源清空，由判定重新写入；</li>
+     *   <li>geo_diagnosis_report：1 条，stage = JUDGE、status = PENDING，暂停原因与结束时间清空，判定渠道沿用已冻结的同一渠道。</li>
+     * </ul>
+     * 适用：已暂停或已完成、且有判定失败或待判定回答的报告（没有已启用渠道时暂停的报告只有待判定记录）。</p>
+     * @param reportId 诊断报告 ID
+     * @throws NoSuchElementException 报告不存在
+     * @throws IllegalArgumentException 报告正在生成或已失败、没有需要重判的回答、同一任务已有报告在生成、冻结的判定渠道已被删除，或状态已被其他操作改变
+     */
+    @Transactional
+    public void rejudgeReport(long reportId) {
+        // 1. 锁住所属任务，确认报告可以重新排队
+        GeoDiagnosisReportEntity report = getReport(reportId);
+        lockTaskForRequeue(report, DiagnosisReportStatus.PAUSED, DiagnosisReportStatus.SUCCEEDED);
+        // 2. 只重判失败或待判定的回答，判定成功的不重判，避免重复计费
+        boolean hasUnjudged = analysisDao.exists(new LambdaQueryWrapper<GeoDiagnosisReportResultAnalysisEntity>()
+                .eq(GeoDiagnosisReportResultAnalysisEntity::getReportId, reportId)
+                .in(GeoDiagnosisReportResultAnalysisEntity::getStatus, DiagnosisReportResultAnalysisStatus.PENDING.name(),
+                        DiagnosisReportResultAnalysisStatus.FAILED.name()));
+        if (!hasUnjudged) {
+            throw new IllegalArgumentException("没有判定失败的回答，无需重判");
+        }
+        // 3. 失败的回答改回待判定，清掉旧的失败原因和来源，由判定重新写入
+        analysisDao.update(null, new LambdaUpdateWrapper<GeoDiagnosisReportResultAnalysisEntity>()
+                .eq(GeoDiagnosisReportResultAnalysisEntity::getReportId, reportId)
+                .eq(GeoDiagnosisReportResultAnalysisEntity::getStatus, DiagnosisReportResultAnalysisStatus.FAILED.name())
+                .set(GeoDiagnosisReportResultAnalysisEntity::getStatus, DiagnosisReportResultAnalysisStatus.PENDING.name())
+                .set(GeoDiagnosisReportResultAnalysisEntity::getErrorMessage, null)
+                .set(GeoDiagnosisReportResultAnalysisEntity::getSources, null));
+        // 4. 报告回到待生成，从判定段开始
+        updateReportRequeued(report, DiagnosisReportStage.JUDGE);
+    }
+
+    /**
+     * 读取一份诊断报告。
+     * @param reportId 诊断报告 ID
+     * @return 报告
+     * @throws NoSuchElementException 报告不存在
+     */
+    private GeoDiagnosisReportEntity getReport(long reportId) {
+        GeoDiagnosisReportEntity report = reportDao.selectById(reportId);
+        if (report == null) {
+            throw new NoSuchElementException("诊断报告不存在");
+        }
+        return report;
+    }
+
+    /**
+     * 锁住报告所属的诊断任务，并确认报告可以重新排队：状态在允许范围内、同一任务没有别的报告在生成、冻结的判定渠道仍在。
+     * <p>与生成新报告（createReport）锁同一行任务，重新排队与新建报告串行，同一任务始终最多一份报告在生成。
+     * 报告状态在加锁前读取，最终由写库时的状态条件兜底。</p>
+     * @param report 要重新排队的报告
+     * @param allowedStatuses 允许重新排队的报告状态
+     * @throws IllegalArgumentException 状态不允许、同一任务已有报告在生成，或冻结的判定渠道已被删除
+     */
+    private void lockTaskForRequeue(GeoDiagnosisReportEntity report, DiagnosisReportStatus... allowedStatuses) {
+        // 1. 锁住所属任务行，与生成新报告及其他重跑操作串行
+        taskDao.selectOne(new LambdaQueryWrapper<GeoDiagnosisTaskEntity>()
+                .eq(GeoDiagnosisTaskEntity::getId, report.getTaskId()).last("FOR UPDATE"));
+        // 2. 确认可以重新排队：状态允许、同一任务没有别的报告在生成、冻结的判定渠道仍在
+        if (Arrays.stream(allowedStatuses).noneMatch(status -> status.name().equals(report.getStatus()))) {
+            throw new IllegalArgumentException("报告正在生成或已失败，不能执行此操作");
+        }
+        validateNoReportGenerating(report.getTaskId());
+        validateJudgeChannelExists(report);
+    }
+
+    /**
+     * 确认报告冻结的判定渠道仍然存在；还没开始判定、尚未冻结渠道的报告不检查，领取时再选默认渠道。
+     * @param report 诊断报告
+     * @throws IllegalArgumentException 冻结的判定渠道已被删除
+     */
+    private void validateJudgeChannelExists(GeoDiagnosisReportEntity report) {
+        if (report.getJudgeChannelSnapshot() == null) {
+            return;
+        }
+        Long channelId = ((JSONObject) snapshots.parseSnapshot(report.getJudgeChannelSnapshot())).getLong("id");
+        // 重跑不换判定渠道，渠道被删后无法保持同一份报告的判定口径
+        if (channelService.getById(channelId) == null) {
+            throw new IllegalArgumentException("报告使用的判定渠道已被删除，无法重跑，请重新生成报告");
+        }
+    }
+
+    /**
+     * 把报告重新排队：写入后台要执行的段，状态改为待生成，清空暂停原因与结束时间；只改仍是读取时状态的报告。
+     * @param report 已确认可重新排队的报告
+     * @param stage 后台领取后从哪一段开始
+     * @throws IllegalArgumentException 报告状态已被其他操作改变，未写入
+     */
+    private void updateReportRequeued(GeoDiagnosisReportEntity report, DiagnosisReportStage stage) {
+        int changed = reportDao.update(null, new LambdaUpdateWrapper<GeoDiagnosisReportEntity>()
+                .eq(GeoDiagnosisReportEntity::getId, report.getId())
+                .eq(GeoDiagnosisReportEntity::getStatus, report.getStatus())
+                .set(GeoDiagnosisReportEntity::getStage, stage.name())
+                .set(GeoDiagnosisReportEntity::getStatus, DiagnosisReportStatus.PENDING.name())
+                .set(GeoDiagnosisReportEntity::getErrorMessage, null)
+                .set(GeoDiagnosisReportEntity::getFinishedAt, null));
+        if (changed != 1) {
+            throw new IllegalArgumentException("报告状态已变化，请刷新后再试");
+        }
+        log.info("诊断报告已重新排队 reportId={}, stage={}, previousStatus={}", report.getId(), stage, report.getStatus());
+    }
+
+    /**
+     * 重新生成报告内容：报告回到待生成、停在第 2 段，由后台整段重做维度归一、统计、优化建议与地域策略，判定结果不动；
+     * 已完成报告的原有内容在新内容写入时被替换，生成期间报告不能查看。
+     * <p>写入 geo_diagnosis_report 1 条：stage = CONTENT、status = PENDING，暂停原因与结束时间清空。
+     * 适用：停在第 2 段的已暂停报告，或已完成的报告。</p>
+     * @param reportId 诊断报告 ID
+     * @throws NoSuchElementException 报告不存在
+     * @throws IllegalArgumentException 报告停在判定段、正在生成或已失败，同一任务已有报告在生成，冻结的判定渠道已被删除，或状态已被其他操作改变
+     */
+    @Transactional
+    public void regenerateReportContent(long reportId) {
+        // 1. 停在判定段的报告还有判定失败没处理，要先重判或忽略失败继续
+        GeoDiagnosisReportEntity report = getReport(reportId);
+        boolean pausedAtJudge = DiagnosisReportStatus.PAUSED.name().equals(report.getStatus())
+                && DiagnosisReportStage.JUDGE.name().equals(report.getStage());
+        if (pausedAtJudge) {
+            throw new IllegalArgumentException("报告停在判定段，请先重判失败的回答或忽略失败继续");
+        }
+        // 2. 锁住所属任务，确认报告可以重新排队
+        lockTaskForRequeue(report, DiagnosisReportStatus.PAUSED, DiagnosisReportStatus.SUCCEEDED);
+        // 3. 报告回到待生成，第 2 段整段重做
+        updateReportRequeued(report, DiagnosisReportStage.CONTENT);
+    }
+
+    /**
+     * 忽略失败继续：停在判定段时，判定失败的回答保持失败、不计入依赖判定的指标，报告回到待生成并进入第 2 段；
+     * 停在第 2 段时，按已保存的内容直接完成报告，失败的建议或地域策略在报告上显示为生成失败，维度归一失败时维度保持原名。
+     * <p>写入 geo_diagnosis_report 1 条，暂停原因清空：判定段改为 stage = CONTENT、status = PENDING；第 2 段改为 status = SUCCEEDED 并记下结束时间。</p>
+     * @param reportId 诊断报告 ID
+     * @throws NoSuchElementException 报告不存在
+     * @throws IllegalArgumentException 报告未暂停；判定段没有判定成功的回答、同一任务已有报告在生成或冻结的判定渠道已被删除；
+     *         第 2 段没有已生成的内容；或状态已被其他操作改变
+     */
+    @Transactional
+    public void skipReportFailures(long reportId) {
+        // 1. 只有已暂停的报告才有可忽略的失败
+        GeoDiagnosisReportEntity report = getReport(reportId);
+        if (!DiagnosisReportStatus.PAUSED.name().equals(report.getStatus())) {
+            throw new IllegalArgumentException("只有已暂停的报告可以忽略失败继续");
+        }
+        // 2. 判定段忽略后还要生成报告内容，需要重新排队；第 2 段忽略后不再调用模型，直接完成
+        if (DiagnosisReportStage.JUDGE.name().equals(report.getStage())) {
+            skipJudgeFailures(report);
+        } else {
+            updateReportSucceededWithFailures(report);
+        }
+    }
+
+    /**
+     * 判定段忽略失败：确认至少有一条判定成功的回答后，把报告重新排队到第 2 段；失败的回答保持失败，不计入依赖判定的指标。
+     * @param report 停在判定段的已暂停报告
+     * @throws IllegalArgumentException 没有判定成功的回答、同一任务已有报告在生成、冻结的判定渠道已被删除，或状态已被其他操作改变
+     */
+    private void skipJudgeFailures(GeoDiagnosisReportEntity report) {
+        // 1. 锁住所属任务，确认报告可以重新排队
+        lockTaskForRequeue(report, DiagnosisReportStatus.PAUSED);
+        // 2. 没有判定成功的回答就没有可统计的指标，只能重判
+        boolean anyJudged = analysisDao.exists(new LambdaQueryWrapper<GeoDiagnosisReportResultAnalysisEntity>()
+                .eq(GeoDiagnosisReportResultAnalysisEntity::getReportId, report.getId())
+                .eq(GeoDiagnosisReportResultAnalysisEntity::getStatus, DiagnosisReportResultAnalysisStatus.SUCCEEDED.name()));
+        if (!anyJudged) {
+            throw new IllegalArgumentException("没有判定成功的回答，无法生成报告内容，请重判");
+        }
+        // 3. 报告进入第 2 段，等后台生成报告内容
+        updateReportRequeued(report, DiagnosisReportStage.CONTENT);
+    }
+
+    /**
+     * 第 2 段忽略失败：按暂停时保存的内容直接完成报告，不再调用模型；只改仍停在第 2 段的已暂停报告。
+     * @param report 停在第 2 段的已暂停报告
+     * @throws IllegalArgumentException 没有已生成的内容（内容生成出错），或状态已被其他操作改变
+     */
+    private void updateReportSucceededWithFailures(GeoDiagnosisReportEntity report) {
+        // 1. 内容生成出错时没有可用的内容，忽略也完成不了，只能修复后重新生成
+        if (report.getSummary() == null) {
+            throw new IllegalArgumentException("报告内容生成出错，没有可用的内容，请修复后重新生成报告内容");
+        }
+        // 2. 按暂停时保存的内容完成报告；期间被其他操作改走状态时不写入
+        int changed = reportDao.update(null, new LambdaUpdateWrapper<GeoDiagnosisReportEntity>()
+                .eq(GeoDiagnosisReportEntity::getId, report.getId())
+                .eq(GeoDiagnosisReportEntity::getStatus, DiagnosisReportStatus.PAUSED.name())
+                .eq(GeoDiagnosisReportEntity::getStage, DiagnosisReportStage.CONTENT.name())
+                .set(GeoDiagnosisReportEntity::getStatus, DiagnosisReportStatus.SUCCEEDED.name())
+                .set(GeoDiagnosisReportEntity::getErrorMessage, null)
+                .set(GeoDiagnosisReportEntity::getFinishedAt, LocalDateTime.now()));
+        if (changed != 1) {
+            throw new IllegalArgumentException("报告状态已变化，请刷新后再试");
+        }
+        log.info("诊断报告已忽略失败并完成 reportId={}", report.getId());
+    }
+
+    /**
+     * 领取下一份要生成的报告：优先继续上次中断的 RUNNING 报告，其次领取最早的 PENDING 报告并改为 RUNNING；已暂停的报告不领取，等用户处理。
      * <p>单实例执行由后台执行器的数据库会话锁保证，因此残留的 RUNNING 报告可以直接续跑；已判定的回答不会重复判定。</p>
      * @return 已处于 RUNNING 的报告，没有可处理的报告时为 null
      */
@@ -232,9 +448,40 @@ public class GeoDiagnosisReportService {
     }
 
     /**
-     * 冻结汇总并结束报告；只更新 RUNNING 报告。
+     * 统计一份报告中判定失败的回答按失败原因各有几条，供暂停原因使用。
+     * @param reportId 诊断报告 ID
+     * @return 失败原因到条数的映射，按条数从多到少；没有判定失败时为空映射，没有记录原因的计为“原因未记录”
+     */
+    public Map<String, Long> countAnalysisFailureReasons(long reportId) {
+        Map<String, Long> reasons = new LinkedHashMap<>();
+        for (Map<String, Object> row : analysisDao.countFailureReasons(reportId, DiagnosisReportResultAnalysisStatus.FAILED.name())) {
+            String reason = row.get("error_message") == null ? "原因未记录" : (String) row.get("error_message");
+            reasons.put(reason, ((Number) row.get("analysis_count")).longValue());
+        }
+        return reasons;
+    }
+
+    /**
+     * 第 1 段全部判定成功后，把报告切到第 2 段生成报告内容；只改生成中、停在判定段的报告。
+     * @param reportId 诊断报告 ID
+     * @throws IllegalStateException 报告已不在判定段生成中，未写入
+     */
+    @Transactional
+    public void updateReportStageContent(long reportId) {
+        int changed = reportDao.update(null, new LambdaUpdateWrapper<GeoDiagnosisReportEntity>()
+                .eq(GeoDiagnosisReportEntity::getId, reportId)
+                .eq(GeoDiagnosisReportEntity::getStatus, DiagnosisReportStatus.RUNNING.name())
+                .eq(GeoDiagnosisReportEntity::getStage, DiagnosisReportStage.JUDGE.name())
+                .set(GeoDiagnosisReportEntity::getStage, DiagnosisReportStage.CONTENT.name()));
+        if (changed != 1) {
+            throw new IllegalStateException("诊断报告进入生成报告内容失败");
+        }
+    }
+
+    /**
+     * 第 2 段全部成功后冻结报告内容并完成报告；只更新 RUNNING 报告。
      * @param reportId 报告 ID
-     * @param summary 冻结的汇总 JSON
+     * @param summary 第 2 段生成的报告内容 JSON
      */
     @Transactional
     public void finishReport(long reportId, String summary) {
@@ -247,25 +494,40 @@ public class GeoDiagnosisReportService {
     }
 
     /**
-     * 补全报告缺失的汇总内容：用补算后的完整汇总替换 summary，状态、时间与判定记录都不改。
-     * <p>写入 geo_diagnosis_report 1 条的 summary 字段，只更新已完成（SUCCEEDED）的报告；同一份报告不重复补全由调用方保证。</p>
+     * 暂停报告：当前段有失败时写入原因，等用户重试或忽略失败继续；只改生成中的报告，段、已保存的判定结果与内容都不动。
      * @param reportId 报告 ID
-     * @param summary 补全后的完整汇总 JSON
-     * @throws IllegalStateException 报告已不是已完成状态，未写入
+     * @param reason 脱敏后的暂停原因，写明哪一步失败、失败几条
      */
     @Transactional
-    public void updateReportSummarySupplemented(long reportId, String summary) {
-        int changed = reportDao.update(null, new LambdaUpdateWrapper<GeoDiagnosisReportEntity>()
+    public void updateReportPaused(long reportId, String reason) {
+        reportDao.update(null, new LambdaUpdateWrapper<GeoDiagnosisReportEntity>()
                 .eq(GeoDiagnosisReportEntity::getId, reportId)
-                .eq(GeoDiagnosisReportEntity::getStatus, DiagnosisReportStatus.SUCCEEDED.name())
-                .set(GeoDiagnosisReportEntity::getSummary, summary));
-        if (changed != 1) {
-            throw new IllegalStateException("诊断报告补全结果保存失败");
-        }
+                .eq(GeoDiagnosisReportEntity::getStatus, DiagnosisReportStatus.RUNNING.name())
+                .set(GeoDiagnosisReportEntity::getStatus, DiagnosisReportStatus.PAUSED.name())
+                .set(GeoDiagnosisReportEntity::getErrorMessage, reason));
+    }
+
+    /**
+     * 第 2 段有失败时保存本次生成的内容并暂停报告；只改生成中的报告。
+     * <p>写入 geo_diagnosis_report 1 条：summary 替换为本次内容（内容生成出错时清空，上一次的内容不再保留），status = PAUSED，
+     * error_message 写明哪几步失败。</p>
+     * @param reportId 报告 ID
+     * @param summary 本次生成的内容 JSON，失败的建议或地域策略已标记为生成失败；内容生成出错时为 null
+     * @param reason 脱敏后的暂停原因
+     */
+    @Transactional
+    public void updateReportContentPaused(long reportId, String summary, String reason) {
+        reportDao.update(null, new LambdaUpdateWrapper<GeoDiagnosisReportEntity>()
+                .eq(GeoDiagnosisReportEntity::getId, reportId)
+                .eq(GeoDiagnosisReportEntity::getStatus, DiagnosisReportStatus.RUNNING.name())
+                .set(GeoDiagnosisReportEntity::getStatus, DiagnosisReportStatus.PAUSED.name())
+                .set(GeoDiagnosisReportEntity::getSummary, summary)
+                .set(GeoDiagnosisReportEntity::getErrorMessage, reason));
     }
 
     /**
      * 将报告标记为失败；只更新 RUNNING 报告，已保存的分析结果保留。
+     * <p>现在只在冻结的判定渠道被删除时调用：重跑不换渠道，报告无法再执行，只能重新生成一份。</p>
      * @param reportId 报告 ID
      * @param reason 脱敏后的失败原因
      */

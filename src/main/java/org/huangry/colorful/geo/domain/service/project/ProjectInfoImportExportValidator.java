@@ -33,12 +33,15 @@ public class ProjectInfoImportExportValidator {
     private GeoLlmChannelService channelService;
     /** 迁移渠道快照允许保留的历史展示字段，连接配置不在迁移范围。 */
     public static final Set<String> CHANNEL_DISPLAY_FIELDS = Set.of("channelCode", "channelName", "providerCode", "modelName", "protocolType");
-    /** 任务、结果、报告的终态；其他状态会被后台继续领取执行，不能出现在文件中。 */
+    /**
+     * 任务、结果、报告不会被后台领取的状态；其他状态会被后台继续领取执行，不能出现在文件中。
+     * 已暂停的报告只在用户点重试或忽略失败继续后才重新排队，后台不会自动领取，可以导出。
+     */
     private static final Map<ProjectInfoImportExportTable, Set<String>> TERMINAL_STATUSES = Map.of(
             TASK, Set.of(DiagnosisTaskStatus.SUCCEEDED.name(), DiagnosisTaskStatus.PARTIAL_FAILED.name(), DiagnosisTaskStatus.FAILED.name()),
             RESULT, Set.of(DiagnosisTaskResultStatus.SUCCEEDED.name(), DiagnosisTaskResultStatus.FAILED.name()),
-            REPORT, Set.of(DiagnosisReportStatus.SUCCEEDED.name(), DiagnosisReportStatus.FAILED.name()));
-    /** 回答分析的全部有效状态；失败报告下的待判定记录不会被后台单独领取，可以保留。 */
+            REPORT, Set.of(DiagnosisReportStatus.SUCCEEDED.name(), DiagnosisReportStatus.PAUSED.name(), DiagnosisReportStatus.FAILED.name()));
+    /** 回答分析的全部有效状态；失败或已暂停报告下的待判定记录不会被后台单独领取，可以保留。 */
     private static final Set<String> ANALYSIS_STATUSES = Arrays.stream(DiagnosisReportResultAnalysisStatus.values())
             .map(Enum::name).collect(Collectors.toSet());
 
@@ -59,7 +62,7 @@ public class ProjectInfoImportExportValidator {
         if (rows.get(PROJECT).size() != 1) {
             throw new IllegalArgumentException("一个文件必须且只能包含一个项目");
         }
-        // 2. 校验行字段和终态；失败报告下未完成的回答分析保留，但不会自动领取
+        // 2. 校验行字段和终态；失败或已暂停报告下未完成的回答分析保留，但不会自动领取
         for (ProjectInfoImportExportTable table : values()) {
             for (ObjectNode row : rows.get(table).values()) {
                 validateArchiveRow(table, row);
@@ -126,7 +129,7 @@ public class ProjectInfoImportExportValidator {
         // 2. 每列必须显式出现并符合存储类型，项目额外校验列表与地址的展示边界
         for (String field : fields) {
             if (!row.has(field)) {
-                // 早期导出的文件没有后加的列（问题地域、报告语言），缺省时写库跳过该列，由数据库默认值补上
+                // 早期导出的文件没有后加的列（问题地域、报告语言、报告所在段），缺省时写库跳过该列，由数据库默认值补上
                 if (OPTIONAL_COLUMNS.contains(field)) {
                     continue;
                 }
@@ -137,7 +140,7 @@ public class ProjectInfoImportExportValidator {
         if (table == PROJECT) {
             validateProjectColumns(row);
         }
-        // 3. 拒绝会被后台继续领取的主记录；失败报告的待判定子行可保留
+        // 3. 拒绝会被后台继续领取的主记录；失败或已暂停报告的待判定子行可保留
         Set<String> terminal = TERMINAL_STATUSES.get(table);
         if (terminal != null && !terminal.contains(row.path("status").asText())) {
             throw new IllegalArgumentException("存在未结束或状态无效的诊断任务、结果或报告，请完成处理后再导出");
@@ -279,7 +282,7 @@ public class ProjectInfoImportExportValidator {
             ObjectNode task = rows.get(TASK).get(JsonUtils.getPositiveLong(result, "task_id"));
             validateResultSnapshot(result, task.path("plan_snapshot"));
         }
-        // 3. 成功报告不应包含待判定回答，失败报告的残留待判定记录不会被后台单独领取
+        // 3. 成功报告不应包含待判定回答，失败或已暂停报告的残留待判定记录不会被后台单独领取
         for (ObjectNode analysis : rows.get(ANALYSIS).values()) {
             ObjectNode report = rows.get(REPORT).get(JsonUtils.getPositiveLong(analysis, "report_id"));
             if (DiagnosisReportStatus.SUCCEEDED.name().equals(report.path("status").asText())

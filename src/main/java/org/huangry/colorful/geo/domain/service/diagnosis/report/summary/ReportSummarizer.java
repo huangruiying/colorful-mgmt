@@ -21,13 +21,6 @@ import java.util.Map;
  */
 @Component
 public class ReportSummarizer {
-    /**
-     * 一份完整报告 summary 应有的全部部分；advice 由后台执行器在汇总后写入，其余由 buildSummary 产出。新增部分时只改这里。
-     * <p>⑦ 的 region 不在清单里：只有问题带地域的新报告才有内容，旧报告的 ⑦ 显示空，不提供补全。</p>
-     */
-    public static final List<String> SUMMARY_PARTS = List.of("sample", "models", "strength", "reservations", "criteria", "concerns",
-            "brand", "competitor", "source", "issues", "advice");
-
     @Resource
     private ResultRuleAnalyzer resultRuleAnalyzer;
     @Resource
@@ -77,15 +70,6 @@ public class ReportSummarizer {
         // 5. ⑦ 地域报告：按问题地域分组，算宣传状态、可见度与机会；不分地域的回答不计入
         summary.put("region", reportRegionSummarizer.buildRegionReport(facts, project, dimensionMapping));
         return summary;
-    }
-
-    /**
-     * 找出报告 summary 缺少的部分；缺少任何一部分，页面就提供补全。
-     * @param summary 报告冻结的汇总
-     * @return 缺少的部分名称，按 SUMMARY_PARTS 顺序；内容完整时为空列表
-     */
-    public static List<String> listMissingParts(JSONObject summary) {
-        return SUMMARY_PARTS.stream().filter(part -> !summary.containsKey(part)).toList();
     }
 
     /**

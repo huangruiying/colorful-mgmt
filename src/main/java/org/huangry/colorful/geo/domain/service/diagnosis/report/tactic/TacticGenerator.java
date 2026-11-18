@@ -10,17 +10,23 @@ import org.huangry.colorful.geo.infrastructure.common.exceptions.LLMClientExcept
 import org.huangry.colorful.geo.infrastructure.repository.entity.GeoLlmChannelEntity;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import static org.huangry.colorful.geo.infrastructure.client.llm.tools.LLMJsonOutputParser.listObjects;
 
 /**
  * 生成诊断报告的优化建议和 ⑦ 各地域的提升策略：把统计出的规则问题、地域机会交给模型，写成“接下来怎么做”的文字。
- * <p>生成报告的后台执行器在统计之后调用两者，补全旧报告只用优化建议；提示词组装与输出校验由 AdvicePrompt、RegionStrategyPrompt 负责，
- * 本类调用模型。都不是核心步骤：调用失败或输出无效时不抛出，建议或该地域策略记为失败，报告其余内容照常保存。
+ * <p>后台执行器在第 2 段统计之后调用两者；提示词组装与输出校验由 AdvicePrompt、RegionStrategyPrompt 负责，本类调用模型。
+ * 调用失败或输出无效时不抛出，建议或该地域策略标记为生成失败，报告其余内容照常生成；是否因此暂停报告由执行器决定。
  * 建议整份报告调用一次，策略每个有机会的地域调用一次，都使用报告冻结的判定渠道、不联网，输出按报告语言书写。</p>
  */
 @Component
 @Slf4j
 public class TacticGenerator {
+    /** 建议或地域策略生成失败时的状态值，页面按它显示生成失败。 */
+    private static final String FAILED_STATUS = "FAILED";
+
     @Resource
     private LLMClient llmClient;
     @Resource
@@ -48,23 +54,39 @@ public class TacticGenerator {
         } catch (LLMClientException | IllegalArgumentException exception) {
             // 建议只是对规则问题的归纳，失败时页面仍能展示规则发现的问题与证据
             log.warn("诊断报告优化建议生成失败 reportId={}, issues={}, errorType={}", reportId, issues.size(), exception.getClass().getSimpleName());
-            return new JSONObject(true).fluentPut("status", "FAILED").fluentPut("errorMessage", "优化建议生成失败，可先查看规则发现的问题");
+            return new JSONObject(true).fluentPut("status", FAILED_STATUS).fluentPut("errorMessage", "优化建议生成失败，可先查看规则发现的问题");
         }
     }
 
     /**
-     * 为 ⑦ 地域报告的每个地域生成提升策略，写入该地域的 strategy；地域之间互不影响。
+     * 判断一份优化建议是否生成失败；没有问题而未调用模型的不算失败。
+     * @param advice generateAdvice 返回的 advice 对象
+     * @return 状态为 FAILED 时为 true
+     */
+    public static boolean isFailed(JSONObject advice) {
+        return FAILED_STATUS.equals(advice.getString("status"));
+    }
+
+    /**
+     * 为 ⑦ 地域报告的每个地域生成提升策略，写入该地域的 strategy；地域之间互不影响，某个地域失败不影响其他地域。
      * @param regionReport 汇总中的 region 部分，regions 中每个地域带 opportunities
      * @param project 项目资料
      * @param channel 判定渠道
      * @param reportId 报告 ID，仅用于日志
      * @param reportLanguage 报告语言，策略按此语言书写
+     * @return 策略生成失败的地域名称，按地域顺序；全部成功或没有机会而未调用模型时为空
      */
-    public void generateRegionStrategies(JSONObject regionReport, JSONObject project, GeoLlmChannelEntity channel, long reportId,
-                                         String reportLanguage) {
+    public List<String> generateRegionStrategies(JSONObject regionReport, JSONObject project, GeoLlmChannelEntity channel, long reportId,
+                                                 String reportLanguage) {
+        List<String> failedRegions = new ArrayList<>();
         for (JSONObject region : listObjects(regionReport.get("regions"))) {
-            region.put("strategy", generateRegionStrategy(region, project, channel, reportId, reportLanguage));
+            JSONObject strategy = generateRegionStrategy(region, project, channel, reportId, reportLanguage);
+            region.put("strategy", strategy);
+            if (FAILED_STATUS.equals(strategy.getString("status"))) {
+                failedRegions.add(region.getString("name"));
+            }
         }
+        return failedRegions;
     }
 
     /**
@@ -91,7 +113,7 @@ public class TacticGenerator {
             // 策略只是对机会清单的归纳，失败时页面仍能展示该地域的宣传状态、可见度与机会
             log.warn("诊断报告地域策略生成失败 reportId={}, region={}, opportunities={}, errorType={}", reportId, region.getString("name"),
                     opportunities.size(), exception.getClass().getSimpleName());
-            return new JSONObject(true).fluentPut("status", "FAILED").fluentPut("errorMessage", "该地域的提升策略生成失败，可先查看机会清单");
+            return new JSONObject(true).fluentPut("status", FAILED_STATUS).fluentPut("errorMessage", "该地域的提升策略生成失败，可先查看机会清单");
         }
     }
 }

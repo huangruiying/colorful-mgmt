@@ -12,11 +12,12 @@ import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisReportServi
 import org.huangry.colorful.geo.domain.service.diagnosis.report.analyze.ResultAnalyzer;
 import org.huangry.colorful.geo.domain.service.diagnosis.report.analyze.ResultJudgePrompt;
 import org.huangry.colorful.geo.domain.service.diagnosis.report.dimension.DimensionNormalizer;
+import org.huangry.colorful.geo.domain.service.diagnosis.report.dimension.DimensionNormalizer.DimensionNormalization;
 import org.huangry.colorful.geo.domain.service.diagnosis.report.tactic.TacticGenerator;
 import org.huangry.colorful.geo.domain.service.diagnosis.report.summary.ReportSummarizer;
 import org.huangry.colorful.geo.domain.service.llm.GeoLlmChannelService;
 import org.huangry.colorful.geo.infrastructure.client.llm.LLMStrategyRouter;
-import org.huangry.colorful.geo.infrastructure.common.enums.DiagnosisReportResultAnalysisStatus;
+import org.huangry.colorful.geo.infrastructure.common.enums.DiagnosisReportStage;
 import org.huangry.colorful.geo.infrastructure.common.exceptions.LLMClientException;
 import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisReportEntity;
 import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisReportResultAnalysisEntity;
@@ -29,17 +30,20 @@ import org.springframework.stereotype.Component;
 
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 import javax.sql.DataSource;
 
 /**
- * 诊断报告离线 Job：领取报告，逐条判定有效回答，最后归一维度、汇总并冻结结果。
- * <p>start 向统一线程池提交单个轮询，tick 领取报告，generate 编排判定与汇总，close 通知退出。
- * 数据库会话锁限定同一库唯一执行者，中断的报告下次领取时从剩余待判定记录续跑；判定失败不重试。</p>
+ * 诊断报告离线 Job：领取报告，分两段生成——第 1 段逐条判定有效回答，第 2 段生成报告内容（维度归一、统计、优化建议、地域策略）。
+ * <p>start 向统一线程池提交单个轮询，tick 领取报告，generate 从报告停在的段开始编排两段，close 通知退出。
+ * 任一段有失败都暂停报告，等用户重试该段或忽略失败继续，不自动重试；段与状态的变化都交给报告服务写库。
+ * 数据库会话锁限定同一库唯一执行者，中断的报告下次领取时续跑当前段：判定段接着判剩余记录，第 2 段整段重做。</p>
  */
 @Component
 @Slf4j
@@ -154,8 +158,8 @@ public class DiagnosisReportWorker {
 	}
 
 	/**
-	 * 生成一份报告：冻结判定渠道 → 逐条判定 → 归一维度并汇总。
-	 * <p>报告由 createReport 建好、状态为待处理，后台捞到后从这里开始判定和汇总。</p>
+	 * 生成一份报告：确定判定渠道后，从报告停在的段开始执行；判定段全部成功才接着生成报告内容。
+	 * <p>新报告由 createReport 建好、停在判定段；用户重判时回到判定段，重新生成报告内容或在判定段忽略失败后直接从第 2 段开始。</p>
 	 *
 	 * @param report 已处于 RUNNING 的报告
 	 * @throws SQLException 执行锁连接检查失败，交由轮询处理
@@ -167,30 +171,19 @@ public class DiagnosisReportWorker {
 		if (channel == null) {
 			return;
 		}
-		// 2. 逐条判定剩余待判定记录，失败只记录本条原因并继续
-		Set<String> publishedUrls = geoDiagnosisReportService.listPublishedUrls();
-		while (! stopped && ! Thread.currentThread().isInterrupted()) {
-			if (lease == null || ! lease.isValid(2)) {
-				throw new IllegalStateException("诊断报告执行锁连接已失效");
-			}
-			GeoDiagnosisReportResultAnalysisEntity analysis = geoDiagnosisReportService.findNextPendingAnalysis(report.getId());
-			if (analysis == null) {
-				break;
-			}
-			resultAnalyzer.analyzeResult(analysis, project, publishedUrls, channel, report.getReportLanguage());
+		// 2. 第 1 段：停在判定段时逐条判定剩余记录，有失败时报告已暂停，不进入第 2 段
+		boolean atJudgeStage = DiagnosisReportStage.JUDGE.name().equals(report.getStage());
+		// 3. 第 2 段：不在判定段，或判定段全部成功，才生成报告内容
+		if (! atJudgeStage || judgeAnswers(report, project, channel)) {
+			generateContent(report, project, channel);
 		}
-		if (stopped || Thread.currentThread().isInterrupted()) {
-			throw new IllegalStateException("诊断报告执行服务正在停止");
-		}
-		// 3. 全部判定结束后汇总并冻结
-		summarize(report, project, channel);
 	}
 
 	/**
 	 * 确定本报告的判定渠道：未冻结时选默认渠道（分数最高）并冻结，已冻结时按快照 ID 读取同一渠道。
 	 *
 	 * @param report 报告
-	 * @return 判定渠道；无法确定时报告已标记失败并返回 null
+	 * @return 判定渠道；没有已启用渠道时报告已暂停，冻结的渠道被删除时报告已失败，两种情况都返回 null
 	 */
 	private GeoLlmChannelEntity judgeChannel(GeoDiagnosisReportEntity report) {
 		try {
@@ -207,52 +200,133 @@ public class DiagnosisReportWorker {
 			Long channelId = ((JSONObject) diagnosisTaskSnapshots.parseSnapshot(report.getJudgeChannelSnapshot())).getLong("id");
 			GeoLlmChannelEntity channel = channelService.getById(channelId);
 			if (channel == null) {
+				// 重跑不换渠道，冻结的渠道被删后无法保持同一判定口径，报告失败，只能重新生成
 				geoDiagnosisReportService.failReport(report.getId(), "判定渠道已被删除，请重新生成报告");
 				return null;
 			}
 			return channel;
 		} catch (LLMClientException exception) {
-			// 没有已启用渠道时无法判定，报告直接失败，不等待配置
-			geoDiagnosisReportService.failReport(report.getId(), "没有已启用的模型渠道，无法判定");
+			// 没有已启用渠道时无法判定，暂停报告，配好渠道后由用户重试
+			geoDiagnosisReportService.updateReportPaused(report.getId(), "没有已启用的模型渠道，配置后请重试");
 			return null;
 		}
 	}
 
 	/**
-	 * 归一维度并汇总，再生成优化建议和 ⑦ 各地域的提升策略，一起冻结到报告；全部判定失败或汇总异常时报告失败，避免反复重试产生费用。
-	 * <p>优化建议生成失败不影响报告成功，summary.advice 记为失败，规则发现的问题照常保存；某个地域的策略失败只记在该地域的 strategy 上。
-	 * 维度名、建议与策略都按报告语言书写。</p>
+	 * 第 1 段：逐条判定剩余待判定记录，判完看有没有失败；有失败时暂停报告并写明失败条数与原因，全部成功则把报告切到第 2 段。
 	 *
-	 * @param report  报告，提供报告语言
+	 * @param report  停在判定段的报告
+	 * @param project 项目资料
+	 * @param channel 判定渠道
+	 * @return 全部判定成功、可以接着生成报告内容时为 true
+	 * @throws SQLException 执行锁连接检查失败，交由轮询处理
+	 */
+	private boolean judgeAnswers(GeoDiagnosisReportEntity report, JSONObject project, GeoLlmChannelEntity channel) throws SQLException {
+		// 1. 逐条判定剩余待判定记录，单条失败只记录原因并继续下一条
+		Set<String> publishedUrls = geoDiagnosisReportService.listPublishedUrls();
+		while (! stopped && ! Thread.currentThread().isInterrupted()) {
+			if (lease == null || ! lease.isValid(2)) {
+				throw new IllegalStateException("诊断报告执行锁连接已失效");
+			}
+			GeoDiagnosisReportResultAnalysisEntity analysis = geoDiagnosisReportService.findNextPendingAnalysis(report.getId());
+			if (analysis == null) {
+				break;
+			}
+			resultAnalyzer.analyzeResult(analysis, project, publishedUrls, channel, report.getReportLanguage());
+		}
+		if (stopped || Thread.currentThread().isInterrupted()) {
+			throw new IllegalStateException("诊断报告执行服务正在停止");
+		}
+		// 2. 有判定失败时暂停，等用户重判失败的回答或忽略失败继续
+		Map<String, Long> failureReasons = geoDiagnosisReportService.countAnalysisFailureReasons(report.getId());
+		if (! failureReasons.isEmpty()) {
+			geoDiagnosisReportService.updateReportPaused(report.getId(), buildJudgeFailureReason(failureReasons));
+			log.warn("诊断报告判定有失败，已暂停 reportId={}, failureReasons={}", report.getId(), failureReasons);
+			return false;
+		}
+		// 3. 全部判定成功，进入第 2 段
+		geoDiagnosisReportService.updateReportStageContent(report.getId());
+		return true;
+	}
+
+	/**
+	 * 把判定失败按原因汇总成一句暂停原因，例如“判定失败 6 条：判定模型调用超时 4 条，判定模型限制调用频率 2 条”。
+	 *
+	 * @param failureReasons 失败原因到条数的映射，按条数从多到少
+	 * @return 暂停原因
+	 */
+	private String buildJudgeFailureReason(Map<String, Long> failureReasons) {
+		long total = failureReasons.values().stream().mapToLong(Long::longValue).sum();
+		String details = failureReasons.entrySet().stream().map(entry -> entry.getKey() + " " + entry.getValue() + " 条")
+				.collect(Collectors.joining("，"));
+		return "判定失败 " + total + " 条：" + details;
+	}
+
+	/**
+	 * 第 2 段：用判定结果生成报告内容，四步都跑完再看结果——全部成功则冻结内容、报告完成；有失败时保存本次内容并暂停，写明哪几步失败。
+	 * <p>维度归一、优化建议或地域策略失败时内容照常生成（维度保持原名，建议或该地域策略标记为生成失败），用户可整段重试或忽略失败继续。
+	 * 生成过程中出现程序异常（如统计出错）时重试也会重复失败，不保存内容并暂停，修复后再重新生成；读取和写库失败交由轮询续跑。</p>
+	 *
+	 * @param report  停在第 2 段的报告
 	 * @param project 项目资料
 	 * @param channel 判定渠道，用于维度归一、优化建议与地域策略调用
 	 */
-	private void summarize(GeoDiagnosisReportEntity report, JSONObject project, GeoLlmChannelEntity channel) {
+	private void generateContent(GeoDiagnosisReportEntity report, JSONObject project, GeoLlmChannelEntity channel) {
+		// 1. 读取全部回答及判定结果
+		List<ReportAnswer> answers = geoDiagnosisReportService.loadAnswers(report.getId());
+		// 2. 依次归一、统计、写建议和地域策略；程序异常时不保存内容，暂停等修复，避免轮询反复重跑产生模型费用
+		ReportContent content;
 		try {
-			// 1. 判定全部失败时没有可汇总的指标
-			List<ReportAnswer> answers = geoDiagnosisReportService.loadAnswers(report.getId());
-			boolean anyJudged = answers.stream().anyMatch(answer -> DiagnosisReportResultAnalysisStatus.SUCCEEDED.name().equals(answer.analysis().getStatus()));
-			if (! anyJudged) {
-				geoDiagnosisReportService.failReport(report.getId(), "全部回答判定失败，无法生成报告");
-				return;
-			}
-			// 2. 维度归一（非核心，失败时保持原名）后计算指标并冻结
-			String reportLanguage = report.getReportLanguage();
-			Map<String, String> mapping = dimensionNormalizer.normalizeDimensions(answers, channel, report.getId(), reportLanguage);
-			JSONObject summary = reportSummarizer.buildSummary(answers, project, mapping,
-					(JSONObject) diagnosisTaskSnapshots.parseSnapshot(report.getJudgeChannelSnapshot()), report.getPromptVersion());
-			// 3. 基于规则发现的问题生成优化建议（非核心，失败时只记录在 advice 上）
-			summary.put("advice", tacticGenerator.generateAdvice(summary.getJSONArray("issues"), project, channel, report.getId(), reportLanguage));
-			// 4. ⑦ 每个有机会的地域调用一次模型写提升策略（非核心，失败只记录在该地域上）
-			tacticGenerator.generateRegionStrategies(summary.getJSONObject("region"), project, channel, report.getId(), reportLanguage);
-			// 5. 汇总、建议与策略一起冻结，报告完成
-			geoDiagnosisReportService.finishReport(report.getId(), JSON.toJSONString(summary, SerializerFeature.WriteMapNullValue));
-			log.info("诊断报告生成完成 reportId={}, answers={}", report.getId(), answers.size());
+			content = buildContent(report, project, channel, answers);
 		} catch (RuntimeException exception) {
-			// 汇总是确定性计算，重试只会重复失败并重复维度归一调用，因此直接结束
-			log.error("诊断报告汇总失败 reportId={}, errorType={}", report.getId(), exception.getClass().getSimpleName(), exception);
-			geoDiagnosisReportService.failReport(report.getId(), "报告汇总失败，请联系管理员");
+			log.error("诊断报告内容生成出错 reportId={}, errorType={}", report.getId(), exception.getClass().getSimpleName(), exception);
+			geoDiagnosisReportService.updateReportContentPaused(report.getId(), null, "报告内容生成出错，请联系管理员修复后重新生成报告内容");
+			return;
 		}
+		// 3. 全部成功则冻结内容、报告完成；有失败则保存本次内容并暂停，等用户重试或忽略失败继续
+		String summary = JSON.toJSONString(content.summary(), SerializerFeature.WriteMapNullValue);
+		if (content.failedSteps().isEmpty()) {
+			geoDiagnosisReportService.finishReport(report.getId(), summary);
+			log.info("诊断报告生成完成 reportId={}, answers={}", report.getId(), answers.size());
+		} else {
+			geoDiagnosisReportService.updateReportContentPaused(report.getId(), summary, String.join("；", content.failedSteps()));
+			log.warn("诊断报告内容有失败，已暂停 reportId={}, failedSteps={}", report.getId(), content.failedSteps());
+		}
+	}
+
+	/**
+	 * 依次执行第 2 段的四步，失败的步骤只记下、不中断：维度归一 → 统计 ①–⑦ → 优化建议 → 各地域提升策略；维度名、建议与策略按报告语言书写。
+	 *
+	 * @param report  报告，提供报告语言、判定渠道快照与提示词版本
+	 * @param project 项目资料
+	 * @param channel 判定渠道
+	 * @param answers 报告的全部回答
+	 * @return 本次生成的内容及失败的步骤；全部成功时失败步骤为空
+	 */
+	private ReportContent buildContent(GeoDiagnosisReportEntity report, JSONObject project, GeoLlmChannelEntity channel, List<ReportAnswer> answers) {
+		String reportLanguage = report.getReportLanguage();
+		List<String> failedSteps = new ArrayList<>();
+		// 1. 合并同义维度，失败时维度保持原名
+		DimensionNormalization dimensions = dimensionNormalizer.normalizeDimensions(answers, channel, report.getId(), reportLanguage);
+		if (dimensions.failed()) {
+			failedSteps.add("合并同义维度失败");
+		}
+		// 2. 统计 ①–⑦ 的指标、规则问题与各地域机会，只是计算，不调用模型
+		JSONObject summary = reportSummarizer.buildSummary(answers, project, dimensions.mapping(),
+				(JSONObject) diagnosisTaskSnapshots.parseSnapshot(report.getJudgeChannelSnapshot()), report.getPromptVersion());
+		// 3. 基于规则发现的问题写优化建议
+		JSONObject advice = tacticGenerator.generateAdvice(summary.getJSONArray("issues"), project, channel, report.getId(), reportLanguage);
+		summary.put("advice", advice);
+		if (TacticGenerator.isFailed(advice)) {
+			failedSteps.add("写优化建议失败");
+		}
+		// 4. ⑦ 每个有机会的地域写提升策略，地域之间互不影响
+		List<String> failedRegions = tacticGenerator.generateRegionStrategies(summary.getJSONObject("region"), project, channel,
+				report.getId(), reportLanguage);
+		if (! failedRegions.isEmpty()) {
+			failedSteps.add("写地域策略失败：" + String.join("、", failedRegions));
+		}
+		return new ReportContent(summary, failedSteps);
 	}
 
 	/**
@@ -321,5 +395,14 @@ public class DiagnosisReportWorker {
 		} catch (SQLException exception) {
 			log.warn("诊断报告执行锁关闭失败 errorType={}", exception.getClass().getSimpleName());
 		}
+	}
+
+	/**
+	 * 第 2 段生成的报告内容。
+	 *
+	 * @param summary     报告内容，失败的建议或地域策略已标记为生成失败
+	 * @param failedSteps 失败步骤的说明，按执行顺序；全部成功时为空
+	 */
+	private record ReportContent(JSONObject summary, List<String> failedSteps) {
 	}
 }

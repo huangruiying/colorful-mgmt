@@ -2,10 +2,8 @@ package org.huangry.colorful.geo.presentation.controller;
 
 import jakarta.annotation.Resource;
 import org.huangry.colorful.geo.application.diagnosis.DiagnosisReportBusiness;
-import org.huangry.colorful.geo.application.diagnosis.DiagnosisReportSupplementBusiness;
 import org.huangry.colorful.geo.application.diagnosis.model.CreateDiagnosisReportRequest;
 import org.huangry.colorful.geo.application.diagnosis.model.DiagnosisReportResponse;
-import org.huangry.colorful.geo.application.diagnosis.model.DiagnosisTaskResponse;
 import org.huangry.colorful.geo.infrastructure.common.model.PageResponse;
 import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
@@ -14,16 +12,14 @@ import org.springframework.web.bind.annotation.*;
 
 
 /**
- * 诊断报告的管理接口：生成、查询与补全诊断报告。
- * <p>生成立即返回，判定与汇总由后台执行器完成，关闭页面不影响生成。</p>
+ * 诊断报告的管理接口：生成、查询诊断报告，以及暂停后的重试、忽略失败继续和已完成报告的重跑。
+ * <p>生成和重跑都立即返回，判定与生成内容由后台执行器完成，关闭页面不影响生成。</p>
  */
 @RestController
 @RequestMapping("/diagnosis-reports")
 public class MgmtDiagnosisReportController {
 	@Resource
 	private DiagnosisReportBusiness diagnosisReportBusiness;
-	@Resource
-	private DiagnosisReportSupplementBusiness diagnosisReportSupplementBusiness;
 
 	/**
 	 * 生成诊断报告，可指定报告语言。
@@ -55,7 +51,7 @@ public class MgmtDiagnosisReportController {
 	}
 
 	/**
-	 * 查看报告详情与冻结汇总。
+	 * 查看报告详情与报告内容。
 	 *
 	 * @param id 报告 ID
 	 * @return 报告详情
@@ -66,14 +62,37 @@ public class MgmtDiagnosisReportController {
 	}
 
 	/**
-	 * 补全报告：报告内容缺失时，用已保存的判定结果一次补算 ③–⑥，不重新判定回答；会调用两次模型，请求持续几十秒。
+	 * 重判报告中没有判定成功的回答：已暂停或已完成的报告可用，失败的回答改回待判定，成功的保留，
+	 * 后台从判定段重新执行并接着生成报告内容。
 	 *
-	 * @param id 报告 ID
-	 * @return 补全后的报告详情
+	 * @param id 诊断报告 ID
+	 * @return 重新排队后的报告详情
 	 */
-	@PostMapping("/{id}/supplement")
-	public DiagnosisReportResponse supplementReport(@PathVariable("id") long id) {
-		return diagnosisReportSupplementBusiness.supplementReport(id);
+	@PostMapping("/{id}/rejudge")
+	public DiagnosisReportResponse rejudgeReport(@PathVariable("id") long id) {
+		return diagnosisReportBusiness.rejudgeReport(id);
+	}
+
+	/**
+	 * 重新生成报告内容：停在第 2 段的已暂停报告或已完成的报告可用，后台整段重做第 2 段，判定结果不动，原有内容届时被替换。
+	 *
+	 * @param id 诊断报告 ID
+	 * @return 重新排队后的报告详情
+	 */
+	@PostMapping("/{id}/regenerate-content")
+	public DiagnosisReportResponse regenerateReportContent(@PathVariable("id") long id) {
+		return diagnosisReportBusiness.regenerateReportContent(id);
+	}
+
+	/**
+	 * 忽略失败继续：只对已暂停的报告可用。停在判定段时失败的回答不计入指标、进入第 2 段；停在第 2 段时按已生成的内容直接完成。
+	 *
+	 * @param id 诊断报告 ID
+	 * @return 处理后的报告详情
+	 */
+	@PostMapping("/{id}/skip-failures")
+	public DiagnosisReportResponse skipReportFailures(@PathVariable("id") long id) {
+		return diagnosisReportBusiness.skipReportFailures(id);
 	}
 
 	/**

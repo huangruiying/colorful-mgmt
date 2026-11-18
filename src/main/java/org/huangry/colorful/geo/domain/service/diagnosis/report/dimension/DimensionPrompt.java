@@ -58,31 +58,20 @@ public class DimensionPrompt {
     }
 
     /**
-     * 解析维度归一结果；模型没给出、给了空值或输出损坏时，该维度保持原名，排行照常计算，只是同义维度不合并。
+     * 解析维度归一结果；整段输出无法解析时抛出，由调用方记为归一失败。
      * @param output 模型正文
      * @param dimensions 待归一的维度名
      * @return 原名称到归一名称的映射，覆盖全部输入名称
+     * @throws IllegalArgumentException 正文里没有可解析的 JSON 对象
      */
     public Map<String, String> parseDimensionMapping(String output, Collection<String> dimensions) {
-        JSONObject parsed = extractObjectOrNull(output);
+        JSONObject parsed = LLMJsonOutputParser.extractObject(output, "维度归一结果");
         Map<String, String> mapping = new LinkedHashMap<>();
         for (String dimension : dimensions) {
-            String normalized = parsed == null ? null : parsed.getString(dimension);
+            String normalized = parsed.getString(dimension);
+            // 模型漏掉或给空值的维度保持原名，排行照常计算，只是该维度不与同义写法合并
             mapping.put(dimension, normalized == null || normalized.isBlank() ? dimension : normalized.strip());
         }
         return mapping;
-    }
-
-    /**
-     * 截出模型正文里的 JSON 对象；归一结果损坏不算报告失败，因此不抛出。
-     * @param output 模型正文
-     * @return JSON 对象；无法解析时为 null
-     */
-    private JSONObject extractObjectOrNull(String output) {
-        try {
-            return LLMJsonOutputParser.extractObject(output, "维度归一结果");
-        } catch (IllegalArgumentException exception) {
-            return null;
-        }
     }
 }

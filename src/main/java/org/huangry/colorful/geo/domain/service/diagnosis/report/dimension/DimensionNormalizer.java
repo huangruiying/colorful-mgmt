@@ -17,8 +17,8 @@ import java.util.stream.Collectors;
 
 /**
  * 诊断报告的维度归一：把各回答观点里意思相同、写法不同的维度名合并成统一名称，供统计排行使用。
- * <p>例如“价格偏高”“收费贵”合并为“价格”。生成报告的后台执行器与补全旧报告都在统计前调用一次；提示词组装与输出解析由
- * DimensionPrompt 负责，本类调用模型。不是核心步骤：调用失败或输出无效时不抛出，维度保持原名，报告照常生成。
+ * <p>例如“价格偏高”“收费贵”合并为“价格”。后台执行器在第 2 段统计前调用一次；提示词组装与输出解析由 DimensionPrompt 负责，本类调用模型。
+ * 调用失败或输出无法解析时不抛出：维度保持原名、结果标记为失败，由执行器决定报告是否暂停。
  * 使用报告冻结的判定渠道、不联网，归一后的名称按报告语言书写。</p>
  */
 @Component
@@ -30,25 +30,35 @@ public class DimensionNormalizer {
     private DimensionPrompt dimensionPrompt;
 
     /**
-     * 收集报告各回答观点里的维度名，调用一次模型把同义维度合并为统一名称；失败时维度保持原名。
+     * 收集报告各回答观点里的维度名，调用一次模型把同义维度合并为统一名称；失败时维度保持原名并标记失败。
      * @param answers 报告的全部回答
      * @param channel 判定渠道
      * @param reportId 报告 ID，仅用于日志
      * @param reportLanguage 报告语言，归一后的名称按此语言书写
-     * @return 原名称到归一名称的映射；没有维度时为空映射
+     * @return 归一结果：原名称到归一名称的映射，以及是否失败；没有维度时为空映射，不调用模型也不算失败
      */
-    public Map<String, String> normalizeDimensions(List<ReportAnswer> answers, GeoLlmChannelEntity channel, long reportId,
-                                                   String reportLanguage) {
+    public DimensionNormalization normalizeDimensions(List<ReportAnswer> answers, GeoLlmChannelEntity channel, long reportId,
+                                                      String reportLanguage) {
         Set<String> dimensions = dimensionPrompt.collectDimensions(answers);
         if (dimensions.isEmpty()) {
-            return Map.of();
+            return new DimensionNormalization(Map.of(), false);
         }
         try {
             String output = llmClient.query(new LLMQueryRequest(dimensionPrompt.buildPrompt(dimensions, reportLanguage)), channel).getContent();
-            return dimensionPrompt.parseDimensionMapping(output, dimensions);
-        } catch (LLMClientException exception) {
-            log.warn("诊断报告维度归一失败，保持原名 reportId={}, dimensions={}", reportId, dimensions.size());
-            return dimensions.stream().collect(Collectors.toMap(Function.identity(), Function.identity()));
+            return new DimensionNormalization(dimensionPrompt.parseDimensionMapping(output, dimensions), false);
+        } catch (LLMClientException | IllegalArgumentException exception) {
+            // 调用失败或输出损坏时同义维度不合并，排行照常计算；是否因此暂停报告由执行器决定
+            log.warn("诊断报告维度归一失败，保持原名 reportId={}, dimensions={}, errorType={}", reportId, dimensions.size(),
+                    exception.getClass().getSimpleName());
+            return new DimensionNormalization(dimensions.stream().collect(Collectors.toMap(Function.identity(), Function.identity())), true);
         }
+    }
+
+    /**
+     * 一次维度归一的结果。
+     * @param mapping 原名称到归一名称的映射，覆盖全部收集到的维度；失败时每个维度映射到自身
+     * @param failed 模型调用失败或输出无法解析，同义维度没有合并
+     */
+    public record DimensionNormalization(Map<String, String> mapping, boolean failed) {
     }
 }

@@ -4,11 +4,10 @@ import com.alibaba.fastjson.JSONObject;
 import com.fasterxml.jackson.annotation.JsonInclude;
 
 import java.time.LocalDateTime;
-import java.util.List;
 
 /**
- * 诊断报告创建、列表与详情接口的响应；名称取自诊断任务快照，判定渠道只返回非敏感快照。
- * 冻结的汇总只在详情返回；顶层空字段不输出到 JSON。
+ * 诊断报告创建、列表、详情及重跑类接口的响应；名称取自诊断任务快照，判定渠道只返回非敏感快照。
+ * 报告内容只在详情返回；顶层空字段不输出到 JSON。
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record DiagnosisReportResponse(
@@ -20,8 +19,10 @@ public record DiagnosisReportResponse(
         String planName,
         /** 诊断任务创建时冻结的项目名称。 */
         String projectName,
-        /** 报告状态：PENDING 待生成、RUNNING 生成中、SUCCEEDED 已完成、FAILED 失败。 */
+        /** 报告状态：PENDING 待生成、RUNNING 生成中、PAUSED 已暂停、SUCCEEDED 已完成、FAILED 失败。 */
         String status,
+        /** 报告执行到或停在哪一段：JUDGE 判定每条回答、CONTENT 生成报告内容；与 status 一起表示进度。 */
+        String stage,
         /** 逐条判定进度，由分析记录实时统计。 */
         ProgressResponse progress,
         /** 判定渠道的非敏感快照，开始判定后才有值。 */
@@ -30,17 +31,15 @@ public record DiagnosisReportResponse(
         String promptVersion,
         /** 报告语言：解析出来的观点概括、维度名、建议与地域策略用此语言书写，问题、回答、引用等原文不翻译。 */
         String reportLanguage,
-        /** 冻结的汇总指标，只在详情且报告完成后返回。 */
+        /** 报告内容，只在详情返回：已完成时为冻结的内容；停在第 2 段暂停时为已生成的内容，失败部分标记为生成失败；其他状态不返回。 */
         JSONObject summary,
-        /** 汇总缺少的部分，只在详情且报告完成后返回；不为空时页面提供“补全报告”。 */
-        List<String> missingParts,
-        /** 生成失败原因。 */
+        /** 暂停或失败原因，写明哪一步失败。 */
         String errorMessage,
         /** 报告创建时间。 */
         LocalDateTime createdAt,
-        /** 开始判定时间。 */
+        /** 后台最近一次领取执行的时间。 */
         LocalDateTime startedAt,
-        /** 生成结束时间。 */
+        /** 报告完成或失败的时间。 */
         LocalDateTime finishedAt
 ) {
     /**
