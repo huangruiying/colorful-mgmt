@@ -1,63 +1,32 @@
-package org.huangry.colorful.geo.domain.service.diagnosis.report.llm;
+package org.huangry.colorful.geo.domain.service.diagnosis.report.tactic;
 
 import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
-import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisReportService.ReportAnswer;
 import org.huangry.colorful.geo.infrastructure.client.llm.LLMClient;
 import org.huangry.colorful.geo.infrastructure.client.llm.model.LLMQueryRequest;
 import org.huangry.colorful.geo.infrastructure.common.exceptions.LLMClientException;
 import org.huangry.colorful.geo.infrastructure.repository.entity.GeoLlmChannelEntity;
 import org.springframework.stereotype.Component;
 
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.function.Function;
-import java.util.stream.Collectors;
-
 import static org.huangry.colorful.geo.infrastructure.client.llm.tools.LLMJsonOutputParser.listObjects;
 
 /**
- * 诊断报告汇总阶段需要模型参与的步骤：维度归一、优化建议、⑦ 各地域的提升策略；生成报告的后台执行器与补全旧报告共用前两步。
- * <p>这些都不是核心步骤：调用失败或输出无效时不抛出，维度保持原名、建议或该地域策略记为失败，报告其余内容照常保存。
- * 维度归一、优化建议整份报告各调用一次，提升策略每个地域调用一次，都使用报告冻结的判定渠道、不联网，输出按报告语言书写。</p>
+ * 生成诊断报告的优化建议和 ⑦ 各地域的提升策略：把统计出的规则问题、地域机会交给模型，写成“接下来怎么做”的文字。
+ * <p>生成报告的后台执行器在统计之后调用两者，补全旧报告只用优化建议；提示词组装与输出校验由 AdvicePrompt、RegionStrategyPrompt 负责，
+ * 本类调用模型。都不是核心步骤：调用失败或输出无效时不抛出，建议或该地域策略记为失败，报告其余内容照常保存。
+ * 建议整份报告调用一次，策略每个有机会的地域调用一次，都使用报告冻结的判定渠道、不联网，输出按报告语言书写。</p>
  */
 @Component
 @Slf4j
-public class ReportLlmAnalyzer {
+public class TacticGenerator {
     @Resource
     private LLMClient llmClient;
-    @Resource
-    private DimensionPrompt dimensionPrompt;
     @Resource
     private AdvicePrompt advicePrompt;
     @Resource
     private RegionStrategyPrompt regionStrategyPrompt;
-
-    /**
-     * 收集报告各回答观点里的维度名，调用一次模型把同义维度合并为统一名称；失败时维度保持原名。
-     * @param answers 报告的全部回答
-     * @param channel 判定渠道
-     * @param reportId 报告 ID，仅用于日志
-     * @param reportLanguage 报告语言，归一后的名称按此语言书写
-     * @return 原名称到归一名称的映射；没有维度时为空映射
-     */
-    public Map<String, String> normalizeDimensions(List<ReportAnswer> answers, GeoLlmChannelEntity channel, long reportId,
-                                                   String reportLanguage) {
-        Set<String> dimensions = dimensionPrompt.collectDimensions(answers);
-        if (dimensions.isEmpty()) {
-            return Map.of();
-        }
-        try {
-            String output = llmClient.query(new LLMQueryRequest(dimensionPrompt.buildPrompt(dimensions, reportLanguage)), channel).getContent();
-            return dimensionPrompt.parseDimensionMapping(output, dimensions);
-        } catch (LLMClientException exception) {
-            log.warn("诊断报告维度归一失败，保持原名 reportId={}, dimensions={}", reportId, dimensions.size());
-            return dimensions.stream().collect(Collectors.toMap(Function.identity(), Function.identity()));
-        }
-    }
 
     /**
      * 调用一次模型，基于规则发现的问题写出主要发现与优化建议；没有问题时不调用。

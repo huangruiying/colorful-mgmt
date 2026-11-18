@@ -1,4 +1,4 @@
-package org.huangry.colorful.geo.domain.service.diagnosis.report.llm;
+package org.huangry.colorful.geo.domain.service.diagnosis.report.dimension;
 
 import com.alibaba.fastjson.JSONObject;
 import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisReportService.ReportAnswer;
@@ -16,7 +16,7 @@ import static org.huangry.colorful.geo.domain.service.diagnosis.report.summary.R
 
 /**
  * 诊断报告维度归一提示词：收集各回答观点里的维度名，组装“合并同义维度”的提示词，并解析模型返回的映射；本类不调用模型。
- * <p>例如“价格偏高”“收费贵”合并为“价格”，排行时才不会被不同写法拆散。整份报告调用一次，调用由 ReportLlmAnalyzer 完成。</p>
+ * <p>例如“价格偏高”“收费贵”合并为“价格”，排行时才不会被不同写法拆散。整份报告调用一次，调用由 DimensionNormalizer 完成。</p>
  */
 @Component
 public class DimensionPrompt {

@@ -9,7 +9,8 @@ import org.huangry.colorful.geo.application.diagnosis.model.DiagnosisReportRespo
 import org.huangry.colorful.geo.domain.service.diagnosis.DiagnosisTaskSnapshots;
 import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisReportService.ReportAnswer;
 import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisReportService;
-import org.huangry.colorful.geo.domain.service.diagnosis.report.llm.ReportLlmAnalyzer;
+import org.huangry.colorful.geo.domain.service.diagnosis.report.dimension.DimensionNormalizer;
+import org.huangry.colorful.geo.domain.service.diagnosis.report.tactic.TacticGenerator;
 import org.huangry.colorful.geo.domain.service.diagnosis.report.summary.ReportSummarizer;
 import org.huangry.colorful.geo.domain.service.llm.GeoLlmChannelService;
 import org.huangry.colorful.geo.infrastructure.common.enums.DiagnosisReportStatus;
@@ -27,7 +28,7 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * 补全诊断报告：已完成报告的 summary 缺少任何部分时，用已保存的判定结果一次补算全部缺失内容并入 summary。
  * <p>只做补全这一件事，不建报告、不重新判定回答、不改报告状态，与生成报告和后台执行器互不调用；
- * 复用报告服务、汇总入口、模型两步分析这些公共能力。一次补全调用两次模型（维度归一、优化建议），同步返回。
+ * 复用报告服务、汇总入口、维度归一与优化建议这些公共能力。一次补全调用两次模型（维度归一、优化建议），同步返回。
  * 同一份报告同时只允许一次补全，不同报告之间互不影响。</p>
  */
 @Service
@@ -43,7 +44,9 @@ public class DiagnosisReportSupplementBusiness {
     @Resource
     private ReportSummarizer reportSummarizer;
     @Resource
-    private ReportLlmAnalyzer reportLlmAnalyzer;
+    private DimensionNormalizer dimensionNormalizer;
+    @Resource
+    private TacticGenerator tacticGenerator;
     @Resource
     private DiagnosisTaskSnapshots diagnosisTaskSnapshots;
     @Resource
@@ -89,10 +92,10 @@ public class DiagnosisReportSupplementBusiness {
         // 2. 用已保存的判定结果重算汇总，维度归一与优化建议沿用报告冻结的判定渠道和报告语言（旧报告为中文）
         JSONObject project = geoDiagnosisReportService.getTaskSnapshot(report.getTaskId()).getJSONObject("project");
         List<ReportAnswer> answers = geoDiagnosisReportService.loadAnswers(reportId);
-        Map<String, String> mapping = reportLlmAnalyzer.normalizeDimensions(answers, channel, reportId, report.getReportLanguage());
+        Map<String, String> mapping = dimensionNormalizer.normalizeDimensions(answers, channel, reportId, report.getReportLanguage());
         JSONObject recalculated = reportSummarizer.buildSummary(answers, project, mapping, judgeChannel, report.getPromptVersion());
         if (missingParts.contains("advice")) {
-            recalculated.put("advice", reportLlmAnalyzer.generateAdvice(recalculated.getJSONArray("issues"), project, channel, reportId,
+            recalculated.put("advice", tacticGenerator.generateAdvice(recalculated.getJSONArray("issues"), project, channel, reportId,
                     report.getReportLanguage()));
         }
 

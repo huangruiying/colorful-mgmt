@@ -11,7 +11,8 @@ import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisReportServi
 import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisReportService;
 import org.huangry.colorful.geo.domain.service.diagnosis.report.analyze.ResultAnalyzer;
 import org.huangry.colorful.geo.domain.service.diagnosis.report.analyze.ResultJudgePrompt;
-import org.huangry.colorful.geo.domain.service.diagnosis.report.llm.ReportLlmAnalyzer;
+import org.huangry.colorful.geo.domain.service.diagnosis.report.dimension.DimensionNormalizer;
+import org.huangry.colorful.geo.domain.service.diagnosis.report.tactic.TacticGenerator;
 import org.huangry.colorful.geo.domain.service.diagnosis.report.summary.ReportSummarizer;
 import org.huangry.colorful.geo.domain.service.llm.GeoLlmChannelService;
 import org.huangry.colorful.geo.infrastructure.client.llm.LLMStrategyRouter;
@@ -55,7 +56,9 @@ public class DiagnosisReportWorker {
 	@Resource
 	private ReportSummarizer reportSummarizer;
 	@Resource
-	private ReportLlmAnalyzer reportLlmAnalyzer;
+	private DimensionNormalizer dimensionNormalizer;
+	@Resource
+	private TacticGenerator tacticGenerator;
 	@Resource
 	private DiagnosisTaskSnapshots diagnosisTaskSnapshots;
 	@Resource
@@ -235,13 +238,13 @@ public class DiagnosisReportWorker {
 			}
 			// 2. 维度归一（非核心，失败时保持原名）后计算指标并冻结
 			String reportLanguage = report.getReportLanguage();
-			Map<String, String> mapping = reportLlmAnalyzer.normalizeDimensions(answers, channel, report.getId(), reportLanguage);
+			Map<String, String> mapping = dimensionNormalizer.normalizeDimensions(answers, channel, report.getId(), reportLanguage);
 			JSONObject summary = reportSummarizer.buildSummary(answers, project, mapping,
 					(JSONObject) diagnosisTaskSnapshots.parseSnapshot(report.getJudgeChannelSnapshot()), report.getPromptVersion());
 			// 3. 基于规则发现的问题生成优化建议（非核心，失败时只记录在 advice 上）
-			summary.put("advice", reportLlmAnalyzer.generateAdvice(summary.getJSONArray("issues"), project, channel, report.getId(), reportLanguage));
+			summary.put("advice", tacticGenerator.generateAdvice(summary.getJSONArray("issues"), project, channel, report.getId(), reportLanguage));
 			// 4. ⑦ 每个有机会的地域调用一次模型写提升策略（非核心，失败只记录在该地域上）
-			reportLlmAnalyzer.generateRegionStrategies(summary.getJSONObject("region"), project, channel, report.getId(), reportLanguage);
+			tacticGenerator.generateRegionStrategies(summary.getJSONObject("region"), project, channel, report.getId(), reportLanguage);
 			// 5. 汇总、建议与策略一起冻结，报告完成
 			geoDiagnosisReportService.finishReport(report.getId(), JSON.toJSONString(summary, SerializerFeature.WriteMapNullValue));
 			log.info("诊断报告生成完成 reportId={}, answers={}", report.getId(), answers.size());

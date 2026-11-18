@@ -1,4 +1,4 @@
-package org.huangry.colorful.geo.domain.service.diagnosis.report.llm;
+package org.huangry.colorful.geo.domain.service.diagnosis.report.tactic;
 
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONArray;
@@ -16,7 +16,7 @@ import static org.huangry.colorful.geo.infrastructure.client.llm.tools.LLMJsonOu
 
 /**
  * ⑦ 地域报告的提升策略提示词：把一个地域的宣传状态、可见度和机会清单交给模型，写品牌优化方向和两类打法，并严格校验输出；本类不调用模型。
- * <p>每个地域调用一次，由 ReportLlmAnalyzer 调用。两类打法必须引用该地域的机会编号，引用不存在的编号的条目丢弃；
+ * <p>每个地域调用一次，由 TacticGenerator 调用。两类打法必须引用该地域的机会编号，引用不存在的编号的条目丢弃；
  * 品牌优化方向没有对应机会时只能标为待验证推测。对当地市场、平台和渠道的判断属于模型推测，页面标为「待验证推测」。</p>
  */
 @Component

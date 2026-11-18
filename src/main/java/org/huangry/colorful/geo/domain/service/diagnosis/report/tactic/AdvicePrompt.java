@@ -1,4 +1,4 @@
-package org.huangry.colorful.geo.domain.service.diagnosis.report.llm;
+package org.huangry.colorful.geo.domain.service.diagnosis.report.tactic;
 
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONArray;
@@ -14,7 +14,7 @@ import static org.huangry.colorful.geo.infrastructure.client.llm.tools.LLMJsonOu
 
 /**
  * 诊断报告优化建议提示词：把规则发现的问题交给模型，让它挑重点写出主要发现与优化建议，并严格校验输出；本类不调用模型。
- * <p>整份报告调用一次，由后台执行器在汇总后调用。模型只能引用问题编号，引用不存在的编号的条目丢弃，防止编造结论。</p>
+ * <p>整份报告调用一次，由 TacticGenerator 在统计之后调用。模型只能引用问题编号，引用不存在的编号的条目丢弃，防止编造结论。</p>
  */
 @Component
 public class AdvicePrompt {

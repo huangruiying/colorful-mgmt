@@ -2,7 +2,6 @@ package org.huangry.colorful.geo.domain.service.diagnosis.report.summary;
 
 import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
-import org.huangry.colorful.geo.domain.service.diagnosis.report.llm.AdvicePrompt;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;

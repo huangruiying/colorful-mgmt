@@ -46,12 +46,12 @@ import java.util.stream.Collectors;
  *   </li>
  *   <li>汇总：全部分析结束后，若无一条判定成功则报告失败；否则
  *     <ul>
- *       <li>维度归一：把同义维度合并为统一名称，由 {@code DimensionPrompt} 组装提示词并解析，{@code ReportLlmAnalyzer} 调用模型；
+ *       <li>维度归一：把同义维度合并为统一名称，由 {@code DimensionPrompt} 组装提示词并解析，{@code DimensionNormalizer} 调用模型；
  *           失败时保持原名，不阻断报告</li>
  *       <li>指标计算：{@code ReportSummarizer.buildSummary} 交给各页签汇总类（diagnosis/report 包）计算 ①–⑤ 的指标、⑥ 规则问题，
  *           以及 ⑦ 按问题地域分组的宣传状态、可见度与机会</li>
- *       <li>优化建议：{@code ReportLlmAnalyzer.generateAdvice} 调用一次模型，失败只记在 advice 上</li>
- *       <li>地域提升策略：{@code ReportLlmAnalyzer.generateRegionStrategies} 每个有机会的地域调用一次模型，失败只记在该地域上</li>
+ *       <li>优化建议：{@code TacticGenerator.generateAdvice} 调用一次模型，失败只记在 advice 上</li>
+ *       <li>地域提升策略：{@code TacticGenerator.generateRegionStrategies} 每个有机会的地域调用一次模型，失败只记在该地域上</li>
  *     </ul>
  *   </li>
  *   <li>冻结：{@code GeoDiagnosisReportService.finishReport} 把汇总 JSON 写入报告 summary 并标记 SUCCEEDED，
