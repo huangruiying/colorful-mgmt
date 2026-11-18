@@ -2,6 +2,38 @@
 
 > 已讨论、暂不实施的想法记录在 [TODO.md](TODO.md)，接手时一并查看。
 
+## 当前交接：诊断报告分两段执行（2026-11-19）
+
+- 用户确认：
+  - 报告分两段：「判定每条回答」和「生成报告内容」（维度归一、统计、优化建议、地域策略）。断点只设在两段之间，第 2 段失败或中断时整段重做。
+  - 判定段全部判完、有失败才暂停，不因连续失败提前停。第 2 段四步跑完再看结果，有失败就先保存本次内容再暂停。
+  - 暂停后可以选「重试」（只重做失败的部分）或「忽略失败继续」。已完成的报告也能重判失败的回答，或重新生成报告内容。
+  - 「补全报告」删除，由重新生成报告内容代替。
+  - 规则已写入项目约定的「诊断报告分段执行」。
+- 代码分工：
+  - 执行器 `DiagnosisReportWorker` 按 `stage` 从停在的段开始执行。
+  - 段与状态的切换、三种用户操作的前置条件，都在 `GeoDiagnosisReportService`：`rejudgeReport`、`regenerateReportContent`、`skipReportFailures`，加上执行器用的 `updateReportStageContent`、`updateReportPaused`、`updateReportContentPaused`。重新排队锁所属任务行，所有写库都带当前状态条件。
+  - 新接口：`/diagnosis-reports/{id}/rejudge`、`/regenerate-content`、`/skip-failures`。响应加 `stage`；报告内容只在已完成、或停在第 2 段暂停时返回。
+  - 行为变化：没有已启用渠道、内容生成出错，由“失败”改为“暂停”；冻结的判定渠道被删除仍是失败。
+  - 页面：两段进度、暂停原因与按钮，状态筛选加“已暂停”。
+  - 已删除：`DiagnosisReportSupplementBusiness`、`/supplement`、`SUMMARY_PARTS`、`missingParts`。
+- 库：`geo_diagnosis_report` 加 `stage`（`JUDGE` / `CONTENT`），状态加 `PAUSED`，`001_init.sql` 已同步。
+  - 本机库 2026-11-19 已执行 [诊断报告分段执行.sql](20261115_area_diagnosis/诊断报告分段执行.sql)：已完成的 10 份记为 CONTENT，失败的 2 份为 JUDGE，表结构与新 `001_init.sql` 一致。
+  - 执行前备份了两张报告表：会话临时目录 `scratchpad/backup-20261119-report-stage.sql`，重启电脑可能被清掉。
+- 验证：
+  - 全量 529 项，仅既有 `shouldRejectDisabledExactTaskChannel` 失败。
+  - 前端 Node 测试结果与改动前相同：63 项中 11 项是既有失败。
+  - 无头 Chrome 用模拟接口检查报告页 32 项，全部通过。
+  - 迁移脚本在临时库重复执行，结果一致；服务器内嵌 SQL 的写法也已跑通。
+  - 逐方法审计与架构复核见 [验收记录第六步](20261115_area_diagnosis/诊断问题带地域-验收.md)；诊断报告全景已同步。
+- 未做：
+  - 服务没有用新代码启动（本机 8010 当前未运行），也没有真实跑一份报告。
+  - 服务器库未改。
+  - Git：修改都未暂存，新文件（`DiagnosisReportStage`、迁移脚本、服务器执行步骤）未跟踪，补全的两个文件已删除；均未提交。
+- 下一步：
+  1. 用新代码启动 8010，打开报告页看已完成报告的按钮；有可用渠道时生成一份报告，试一次重试或忽略失败继续。
+  2. 服务器先按 [诊断报告分段执行-服务器执行](20261115_area_diagnosis/诊断报告分段执行-服务器执行.md) 改库，再发新代码。
+
 ## 当前交接：report 目录按步骤分包（2026-11-18）
 
 - 用户确认：`domain/service/diagnosis/report/` 下的包按报告生成步骤排列，名字按字母顺序即步骤顺序：`analyze/` 1 判定每条回答 → `dimension/` 2 合并同义维度（原 `llm/` 改名）→ `summary/` 3 统计 ①–⑦ → `tactic/` 4-5 写优化建议与地域策略（新包）。只挪位置、拆类，逻辑不变。
