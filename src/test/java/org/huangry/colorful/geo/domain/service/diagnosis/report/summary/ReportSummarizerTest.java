@@ -74,7 +74,7 @@ class ReportSummarizerTest {
                 summary.getJSONArray("strength").getJSONObject(0).getJSONObject("distribution").getInnerMap());
     }
 
-    /** 维度归一只收集三类观点；归一结果缺项或损坏时保持原名。 */
+    /** 维度归一只收集三类观点；归一结果缺项时该维度保持原名，整段输出损坏时抛出，由维度归一记为失败。 */
     @Test
     void shouldCollectAndParseDimensions() {
         var dimensionPrompt = new DimensionPrompt();
@@ -84,7 +84,8 @@ class ReportSummarizerTest {
         Map<String, String> mapping = dimensionPrompt.parseDimensionMapping("{\"价格偏高\":\"价格\"}", dimensions);
         assertEquals("价格", mapping.get("价格偏高"));
         assertEquals("油品", mapping.get("油品"));
-        assertEquals("性价比", dimensionPrompt.parseDimensionMapping("不是 JSON", dimensions).get("性价比"));
+        assertEquals("性价比", mapping.get("性价比"));
+        assertThrows(IllegalArgumentException.class, () -> dimensionPrompt.parseDimensionMapping("不是 JSON", dimensions));
     }
 
     /** ③ 品牌认知：点名问题的情感分布、描述准确率、正负面点与错误信息清单。 */

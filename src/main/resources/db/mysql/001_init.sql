@@ -187,12 +187,13 @@ CREATE TABLE IF NOT EXISTS geo_diagnosis_task_result (
 CREATE TABLE IF NOT EXISTS geo_diagnosis_report (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     task_id BIGINT UNSIGNED NOT NULL COMMENT '所属诊断任务ID',
-    status VARCHAR(20) NOT NULL DEFAULT 'PENDING' COMMENT 'PENDING / RUNNING / SUCCEEDED / FAILED',
+    status VARCHAR(20) NOT NULL DEFAULT 'PENDING' COMMENT 'PENDING / RUNNING / PAUSED / SUCCEEDED / FAILED',
+    stage VARCHAR(20) NOT NULL DEFAULT 'JUDGE' COMMENT '执行到或停在哪一段：JUDGE 判定每条回答 / CONTENT 生成报告内容',
     judge_channel_snapshot JSON NULL COMMENT '判定所用渠道的非敏感配置快照，开始判定时写入',
     prompt_version VARCHAR(50) NULL COMMENT '判定提示词版本',
     report_language VARCHAR(50) NOT NULL DEFAULT '中文' COMMENT '报告解析内容的语言；问题、回答、引用等原文不翻译',
-    summary JSON NULL COMMENT '冻结的汇总指标、主要发现与优化建议，生成成功后写入',
-    error_message VARCHAR(1000) NULL COMMENT '脱敏后的生成失败原因',
+    summary JSON NULL COMMENT '报告内容（汇总指标、主要发现、优化建议与地域策略），第 2 段结束时写入，完成后冻结',
+    error_message VARCHAR(1000) NULL COMMENT '脱敏后的暂停或失败原因',
     started_at DATETIME(3) NULL,
     finished_at DATETIME(3) NULL,
     created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
@@ -201,7 +202,8 @@ CREATE TABLE IF NOT EXISTS geo_diagnosis_report (
     KEY idx_diagnosis_report_task (task_id, created_at),
     KEY idx_diagnosis_report_status (status),
     CONSTRAINT fk_diagnosis_report_task FOREIGN KEY (task_id) REFERENCES geo_diagnosis_task(id),
-    CONSTRAINT chk_diagnosis_report_status CHECK (status IN ('PENDING','RUNNING','SUCCEEDED','FAILED'))
+    CONSTRAINT chk_diagnosis_report_status CHECK (status IN ('PENDING','RUNNING','PAUSED','SUCCEEDED','FAILED')),
+    CONSTRAINT chk_diagnosis_report_stage CHECK (stage IN ('JUDGE','CONTENT'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='诊断报告：针对一次诊断任务生成，每次生成一份';
 
 CREATE TABLE IF NOT EXISTS geo_diagnosis_report_result_analysis (

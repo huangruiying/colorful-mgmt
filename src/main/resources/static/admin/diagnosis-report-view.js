@@ -8,7 +8,9 @@
  * 各页签渲染函数注明了数据来源，字段含义以后端为准。</p>
  */
 (() => {
-    const statusLabels = Object.freeze({PENDING:"待生成", RUNNING:"生成中", SUCCEEDED:"已完成", FAILED:"失败"});
+    const statusLabels = Object.freeze({PENDING:"待生成", RUNNING:"生成中", PAUSED:"已暂停", SUCCEEDED:"已完成", FAILED:"失败"});
+    // 报告的两段：先判定每条回答，再生成报告内容；与后端 DiagnosisReportStage 一致
+    const stageLabels = Object.freeze({JUDGE:"判定每条回答", CONTENT:"生成报告内容"});
     const strengthLabels = {FIRST_CHOICE:"首推", STRONG:"强推", PARALLEL:"并列", PASSING:"顺带一提", WITH_RESERVATION:"附带缺点", NOT_RECOMMENDED:"不推荐"};
     const intentLabels = {RECOMMENDATION:"推荐选择", PROBLEM_SOLVING:"解决问题", COMPARISON:"对比", PURCHASE:"购买决策", TECHNICAL:"技术细节", AWARENESS:"了解认知"};
     const sourceTypeLabels = {OWNED:"官网", PUBLISHED:"我方发布", THIRD_PARTY_TARGET:"提到目标的第三方", COMPETITOR:"提到竞品", OTHER:"其他"};
@@ -18,7 +20,7 @@
     const portrayalLabels = {POSITIVE:"正向", NEUTRAL:"中性", NEGATIVE:"负向", INSUFFICIENT:"证据不足"};
     const opportunityLabels = {COMPETITOR_OCCUPIED:"竞品占位", WHITE_SPACE:"空白题", MENTIONED_NOT_RECOMMENDED:"提到未推荐",
         NOT_FIRST_CHOICE:"推荐未首推", USER_FOCUS:"用户在意", PERCEPTION_GAP:"口碑改善", UNCOVERED_PLATFORM:"渠道空白"};
-    // 子 Tab 与诊断报告全景一致；part 为页签对应的汇总字段，缺失时显示补全提示。⑦ 只有带地域的新报告才有，缺失时自行提示，不提供补全
+    // 子 Tab 与诊断报告全景一致；part 为页签对应的汇总字段，早期报告缺这部分时提示重新生成报告内容。⑦ 只有带地域的新报告才有，缺失时自行提示
     const tabs = Object.freeze([
         {key:"overview", title:"① 诊断概览", render:renderOverview},
         {key:"visibility", title:"② 可见度与推荐", render:renderVisibility},
@@ -46,19 +48,21 @@
      */
     function renderTab(context, panel, key, summary) {
         const tab = tabs.find(item => item.key === key);
-        // 页签内容缺失时提示用右上角「补全报告」补全
-        if (tab.part && !summary[tab.part]) panel.append(supplementNotice());
+        // 早期报告生成时还没有这部分内容，提示重新生成报告内容
+        if (tab.part && !summary[tab.part]) panel.append(missingContentNotice());
         else tab.render(context, panel, summary);
     }
 
     /**
      * @param {object} detail 报告详情
-     * @return {string} 报告所属方案、项目、诊断任务、判定模型、报告语言与状态的一行说明，详情抬头与导出网页抬头共用
+     * @return {string} 报告所属方案、项目、诊断任务、判定模型、报告语言与状态的一行说明，生成中或已暂停时注明所在段；详情抬头与导出网页抬头共用
      */
     function buildReportNote(detail) {
         const judge = detail.judgeChannel ? (detail.judgeChannel.channelName || "—") + " · " + (detail.judgeChannel.modelName || "—") : "未开始";
+        const inStage = detail.status === "RUNNING" || detail.status === "PAUSED";
+        const status = (statusLabels[detail.status] || detail.status) + (inStage ? "（" + stageLabels[detail.stage] + "）" : "");
         return (detail.planName || "—") + " / " + (detail.projectName || "—") + " · 诊断任务 #" + detail.diagnosisTaskId
-            + " · 判定模型：" + judge + " · 报告语言：" + (detail.reportLanguage || "中文") + " · " + (statusLabels[detail.status] || detail.status);
+            + " · 判定模型：" + judge + " · 报告语言：" + (detail.reportLanguage || "中文") + " · " + status;
     }
 
     /**
@@ -70,9 +74,9 @@
         return element("p", "report-filter-note", "已筛选模型：" + modelName + "。按模型分行的表格只显示该模型；维度排行、链接与清单为全部模型合计。");
     }
 
-    /** @return {HTMLElement} 报告内容缺失时页签里的提示，补全入口在详情右上角 */
-    function supplementNotice() {
-        return element("div", "report-progress", "报告内容缺失时，点击补全报告可补全");
+    /** @return {HTMLElement} 早期报告缺少某部分内容时页签里的提示；页面与导出网页共用，入口是系统里已完成报告的「重新生成报告内容」 */
+    function missingContentNotice() {
+        return element("div", "report-progress", "这份报告生成时还没有这部分内容，可在系统中点「重新生成报告内容」补上。");
     }
 
     /**
@@ -101,14 +105,14 @@
     }
 
     /**
-     * ① 概览中的主要发现与前三条建议，内容来自 summary.advice；建议或问题缺失时显示补全提示。
+     * ① 概览中的主要发现与前三条建议，内容来自 summary.advice；早期报告缺建议或问题时提示重新生成报告内容。
      * @param {object} context 模型筛选与查看入口，见 renderTab
      * @param {object} summary 报告汇总
      * @return {HTMLElement} 主要发现与优先行动
      */
     function renderKeyFindings(context, summary) {
         const advice = summary.advice;
-        if (!summary.issues || !summary.advice) return supplementNotice();
+        if (!summary.issues || !summary.advice) return missingContentNotice();
         if (advice.status === "NO_ISSUES") return element("p", "report-empty", "规则没有发现需要处理的问题。");
         if (advice.status === "FAILED") return element("p", "report-empty", advice.errorMessage + "，见 ⑥ 优化建议。");
         const box = element("div", "report-dimension-list");
@@ -594,5 +598,5 @@
         return context.modelFilter ? rows.filter(row => String(row.channelId) === context.modelFilter) : rows;
     }
 
-    window.DiagnosisReportView = Object.freeze({statusLabels, tabs, buildReportNote, buildModelFilterNote, renderTab, renderEvidence, selectSubtab});
+    window.DiagnosisReportView = Object.freeze({statusLabels, stageLabels, tabs, buildReportNote, buildModelFilterNote, renderTab, renderEvidence, selectSubtab});
 })();

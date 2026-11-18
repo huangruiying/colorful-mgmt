@@ -22,7 +22,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
-/** 报告列表与详情的组装：名称取自任务快照、判定进度按状态汇总、汇总只在详情返回、输入校验。 */
+/** 报告列表与详情的组装：名称取自任务快照、判定进度按状态汇总、报告内容只在详情且可查看时返回、重跑类操作交给报告服务、输入校验。 */
 class DiagnosisReportBusinessTest {
     private final DiagnosisReportBusiness business = new DiagnosisReportBusiness();
     private final GeoDiagnosisReportService service = mock(GeoDiagnosisReportService.class);
@@ -34,7 +34,7 @@ class DiagnosisReportBusinessTest {
     @Test
     void shouldListReportsWithProgressAndWithoutSummary() {
         when(reports.selectCount(any())).thenReturn(1L);
-        when(reports.selectList(any())).thenReturn(List.of(report("{\"models\":[]}")));
+        when(reports.selectList(any())).thenReturn(List.of(report("RUNNING", "CONTENT", "{\"models\":[]}")));
         when(analyses.countStatuses(List.of(9L))).thenReturn(List.of(
                 Map.of("report_id", 9L, "status", "PENDING", "analysis_count", 2L),
                 Map.of("report_id", 9L, "status", "SUCCEEDED", "analysis_count", 5L),
@@ -51,13 +51,14 @@ class DiagnosisReportBusinessTest {
         assertEquals(5, item.progress().succeeded());
         assertEquals(1, item.progress().failed());
         assertNull(item.summary());
+        assertEquals("CONTENT", item.stage());
         assertEquals("qwen-plus", item.judgeChannel().getString("modelName"));
     }
 
-    /** 详情返回冻结汇总；不存在的报告明确 404。 */
+    /** 已完成报告的详情返回冻结内容；不存在的报告明确 404。 */
     @Test
     void shouldReturnSummaryOnlyInDetail() {
-        when(reports.selectById(9L)).thenReturn(report("{\"models\":[{\"mentionRate\":0.5}]}"));
+        when(reports.selectById(9L)).thenReturn(report("SUCCEEDED", "CONTENT", "{\"models\":[{\"mentionRate\":0.5}]}"));
         when(analyses.countStatuses(List.of(9L))).thenReturn(List.of());
 
         var detail = business.getReport(9L);
@@ -65,6 +66,35 @@ class DiagnosisReportBusinessTest {
         assertEquals(0.5, detail.summary().getJSONArray("models").getJSONObject(0).getDouble("mentionRate"));
         assertEquals(0, detail.progress().total());
         assertThrows(NoSuchElementException.class, () -> business.getReport(99L));
+    }
+
+    /** 停在第 2 段暂停时返回本次生成的内容；重跑排队、生成中或停在判定段时库里是上一次的内容，不返回。 */
+    @Test
+    void shouldReturnContentOnlyWhenItIsCurrent() {
+        when(analyses.countStatuses(List.of(9L))).thenReturn(List.of());
+        String content = "{\"models\":[]}";
+        when(reports.selectById(9L)).thenReturn(report("PAUSED", "CONTENT", content));
+        assertNotNull(business.getReport(9L).summary());
+        for (var hidden : List.of(report("PENDING", "CONTENT", content), report("RUNNING", "CONTENT", content), report("PAUSED", "JUDGE", content))) {
+            when(reports.selectById(9L)).thenReturn(hidden);
+            assertNull(business.getReport(9L).summary(), hidden.getStatus() + "/" + hidden.getStage());
+        }
+    }
+
+    /** 重判、重新生成内容与忽略失败继续都交给报告服务改状态，再返回最新详情。 */
+    @Test
+    void shouldDelegateRerunActionsToServiceAndReturnLatestDetail() {
+        when(reports.selectById(9L)).thenReturn(report("PENDING", "JUDGE", null));
+        when(analyses.countStatuses(List.of(9L))).thenReturn(List.of());
+
+        assertEquals("JUDGE", business.rejudgeReport(9L).stage());
+        business.regenerateReportContent(9L);
+        business.skipReportFailures(9L);
+
+        verify(service).rejudgeReport(9L);
+        verify(service).regenerateReportContent(9L);
+        verify(service).skipReportFailures(9L);
+        verify(reports, times(3)).selectById(9L);
     }
 
     /** 未选择任务、未知状态与越界分页在调用服务和查询前拒绝。 */
@@ -93,14 +123,17 @@ class DiagnosisReportBusinessTest {
     }
 
     /**
-     * @param summary 冻结汇总 JSON
+     * @param status 报告状态
+     * @param stage 报告所在段
+     * @param summary 报告内容 JSON，可为 null
      * @return 所属任务 30、已冻结判定渠道的报告
      */
-    private GeoDiagnosisReportEntity report(String summary) {
+    private GeoDiagnosisReportEntity report(String status, String stage, String summary) {
         var report = new GeoDiagnosisReportEntity();
         report.setId(9L);
         report.setTaskId(30L);
-        report.setStatus("RUNNING");
+        report.setStatus(status);
+        report.setStage(stage);
         report.setJudgeChannelSnapshot("{\"channelName\":\"千问\",\"modelName\":\"qwen-plus\"}");
         report.setSummary(summary);
         return report;

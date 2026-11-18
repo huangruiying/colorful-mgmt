@@ -28,17 +28,22 @@ import org.huangry.colorful.geo.infrastructure.repository.entity.GeoLlmChannelEn
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.sql.Connection;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
-/** 报告生成编排：冻结默认判定渠道、逐条判定、失败不重试继续下一条、全部判定后汇总并生成优化建议；不连接数据库与模型。 */
+/**
+ * 报告两段编排：冻结默认判定渠道；判定段逐条判定，有失败就暂停、全部成功才进入第 2 段；
+ * 第 2 段四步跑完再看结果，全部成功则完成，有失败保存内容并暂停；不连接数据库与模型。
+ */
 class DiagnosisReportWorkerTest {
     private final DiagnosisReportWorker worker = new DiagnosisReportWorker();
     private final GeoDiagnosisReportService service = mock(GeoDiagnosisReportService.class);
@@ -49,31 +54,31 @@ class DiagnosisReportWorkerTest {
     private final DiagnosisTaskSnapshots snapshots = mock(DiagnosisTaskSnapshots.class);
     private final GeoLlmChannelEntity channel = new GeoLlmChannelEntity();
 
-    /** 首次生成冻结默认渠道；一条判定成功、一条模型失败继续执行，最后汇总并完成报告；优化建议调用也失败时只记在 advice 上。 */
+    /** 首次生成冻结默认渠道；一条判定成功、一条模型失败时继续判完，再按失败原因暂停在判定段，不生成报告内容。 */
     @Test
-    void shouldJudgeEachAnswerAndFinishDespiteSingleFailure() {
+    void shouldPauseAtJudgeStageWhenAnyAnswerFails() {
         when(service.findNextPendingAnalysis(9L)).thenReturn(analysis(1L), analysis(2L), null);
         when(llmClient.query(any(), same(channel))).thenReturn(new LLMResponse("{}", List.of()))
                 .thenThrow(new LLMClientException("调用失败"));
         when(analysisPrompt.parseAnalysisResult(any(), any(), any(), any())).thenReturn(new ResultJudgePrompt.AnalysisResult(new JSONArray(), new JSONArray(), null, null));
-        when(service.loadAnswers(9L)).thenReturn(List.of(new ReportAnswer(succeeded(), new GeoDiagnosisTaskResultEntity())));
-        when(summarizer.buildSummary(any(), any(), any(), any(), any())).thenReturn(summaryWithOneIssue());
+        when(service.countAnalysisFailureReasons(9L)).thenReturn(Map.of("判定模型不可用或未返回有效回答", 1L));
 
-        ReflectionTestUtils.invokeMethod(worker, "generate", report());
+        ReflectionTestUtils.invokeMethod(worker, "generate", report("JUDGE"));
 
         verify(service).freezeJudgeChannel(eq(9L), any(), eq(ResultJudgePrompt.PROMPT_VERSION));
         verify(service).updateAnalysisSucceeded(argThat(saved -> saved.getId() == 1L));
         verify(service).updateAnalysisFailed(eq(2L), eq("判定模型不可用或未返回有效回答"), any());
-        verify(service).finishReport(eq(9L), argThat(summary -> JSON.parseObject(summary).getJSONObject("advice").getString("status").equals("FAILED")));
-        verify(service, never()).failReport(anyLong(), any());
+        verify(service).updateReportPaused(9L, "判定失败 1 条：判定模型不可用或未返回有效回答 1 条");
+        verify(service, never()).updateReportStageContent(anyLong());
+        verify(service, never()).loadAnswers(anyLong());
         // 逐条判定按报告语言组装提示词，判定只看回答原文，不联网
         verify(analysisPrompt, times(2)).buildPrompt(any(), any(), any(), eq("英语"));
         verify(llmClient, never()).query(argThat(LLMQueryRequest::enableWebSearch), any());
     }
 
-    /** 汇总后调用一次模型写建议，只保留引用了已知问题编号的条目，随汇总一起冻结。 */
+    /** 全部判定成功后先切到第 2 段；第 2 段调用一次模型写建议，只保留引用了已知问题编号的条目，随内容一起冻结，报告完成。 */
     @Test
-    void shouldFreezeAdviceGeneratedFromIssues() {
+    void shouldMoveToContentStageAndFinishWithAdvice() {
         when(service.findNextPendingAnalysis(9L)).thenReturn(null);
         when(service.loadAnswers(9L)).thenReturn(List.of(new ReportAnswer(succeeded(), new GeoDiagnosisTaskResultEntity())));
         when(summarizer.buildSummary(any(), any(), any(), any(), any())).thenReturn(summaryWithOneIssue());
@@ -82,61 +87,119 @@ class DiagnosisReportWorkerTest {
                  "actions":[{"title":"补充场景内容","category":"FILL_CONTENT_GAP","content":"写一篇","evidenceStatus":"INFERRED","issueIds":["P1"]}]}
                 """, List.of()));
 
-        ReflectionTestUtils.invokeMethod(worker, "generate", report());
+        ReflectionTestUtils.invokeMethod(worker, "generate", report("JUDGE"));
 
-        verify(service).finishReport(eq(9L), argThat(summary -> {
+        InOrder order = inOrder(service);
+        order.verify(service).updateReportStageContent(9L);
+        order.verify(service).finishReport(eq(9L), argThat(summary -> {
             JSONObject advice = JSON.parseObject(summary).getJSONObject("advice");
             return advice.getString("status").equals("SUCCEEDED") && advice.getJSONArray("findings").size() == 1
                     && advice.getJSONArray("actions").getJSONObject(0).getString("title").equals("补充场景内容");
         }));
+        verify(service, never()).updateReportPaused(anyLong(), any());
+        verify(service, never()).updateReportContentPaused(anyLong(), any(), any());
     }
 
-    /** 汇总后每个有机会的地域调用一次模型写提升策略，随汇总一起冻结。 */
+    /** 第 2 段每个有机会的地域调用一次模型写提升策略，随内容一起冻结；建议与策略都按报告语言书写，且不联网。 */
     @Test
-    void shouldFreezeRegionStrategiesWithSummary() {
+    void shouldFreezeRegionStrategiesWithContent() {
         when(service.findNextPendingAnalysis(9L)).thenReturn(null);
         when(service.loadAnswers(9L)).thenReturn(List.of(new ReportAnswer(succeeded(), new GeoDiagnosisTaskResultEntity())));
-        JSONObject summary = summaryWithOneIssue();
-        summary.getJSONObject("region").getJSONArray("regions").add(JSON.parseObject(
-                "{\"name\":\"美国\",\"portrayal\":{},\"opportunities\":[{\"id\":\"R1-O1\",\"title\":\"竞品占位\"}]}"));
-        when(summarizer.buildSummary(any(), any(), any(), any(), any())).thenReturn(summary);
+        when(summarizer.buildSummary(any(), any(), any(), any(), any())).thenReturn(summaryWithRegion());
         when(llmClient.query(any(), same(channel))).thenReturn(new LLMResponse("{\"findings\":[],\"actions\":[]}", List.of()),
                 new LLMResponse("{\"mentionPlays\":[{\"title\":\"进入推荐清单\",\"steps\":[\"发测评\"],\"evidenceStatus\":\"INFERRED\",\"opportunityIds\":[\"R1-O1\"]}]}", List.of()));
 
-        ReflectionTestUtils.invokeMethod(worker, "generate", report());
+        ReflectionTestUtils.invokeMethod(worker, "generate", report("JUDGE"));
 
         verify(service).finishReport(eq(9L), argThat(saved -> JSON.parseObject(saved).getJSONObject("region").getJSONArray("regions")
                 .getJSONObject(0).getJSONObject("strategy").getString("status").equals("SUCCEEDED")));
-        // 优化建议与地域策略都按报告语言书写，且不联网
         var requests = ArgumentCaptor.forClass(LLMQueryRequest.class);
         verify(llmClient, times(2)).query(requests.capture(), same(channel));
         assertTrue(requests.getAllValues().stream().allMatch(request -> request.prompt().contains("用英语书写") && !request.enableWebSearch()));
     }
 
-    /** 全部判定失败时报告失败，不调用维度归一与汇总。 */
+    /** 建议与某个地域的策略生成失败：内容照常生成并保存，失败部分标记为生成失败，报告暂停在第 2 段并写明哪几步失败。 */
     @Test
-    void shouldFailReportWhenNoAnswerJudged() {
-        when(service.findNextPendingAnalysis(9L)).thenReturn(null);
-        var failed = new GeoDiagnosisReportResultAnalysisEntity();
-        failed.setStatus("FAILED");
-        when(service.loadAnswers(9L)).thenReturn(List.of(new ReportAnswer(failed, new GeoDiagnosisTaskResultEntity())));
+    void shouldSaveContentAndPauseWhenAdviceOrRegionStrategyFails() {
+        when(service.loadAnswers(9L)).thenReturn(List.of(new ReportAnswer(succeeded(), new GeoDiagnosisTaskResultEntity())));
+        when(summarizer.buildSummary(any(), any(), any(), any(), any())).thenReturn(summaryWithRegion());
+        when(llmClient.query(any(), same(channel))).thenThrow(new LLMClientException("调用失败"));
 
-        ReflectionTestUtils.invokeMethod(worker, "generate", report());
+        ReflectionTestUtils.invokeMethod(worker, "generate", report("CONTENT"));
 
-        verify(service).failReport(9L, "全部回答判定失败，无法生成报告");
+        verify(service).updateReportContentPaused(eq(9L), argThat(saved -> {
+            JSONObject content = JSON.parseObject(saved);
+            return content.getJSONObject("advice").getString("status").equals("FAILED") && content.getJSONObject("region")
+                    .getJSONArray("regions").getJSONObject(0).getJSONObject("strategy").getString("status").equals("FAILED");
+        }), eq("写优化建议失败；写地域策略失败：美国"));
         verify(service, never()).finishReport(anyLong(), any());
-        verify(summarizer, never()).buildSummary(any(), any(), any(), any(), any());
     }
 
-    /** 没有已启用渠道时报告直接失败，不进入判定。 */
+    /** 维度归一失败：维度保持原名继续统计和写建议，内容保存后暂停在第 2 段，原因写明合并同义维度失败。 */
     @Test
-    void shouldFailReportWithoutEnabledChannel() {
+    void shouldSaveContentAndPauseWhenDimensionNormalizationFails() {
+        when(service.loadAnswers(9L)).thenReturn(List.of(new ReportAnswer(succeededWithDimension(), new GeoDiagnosisTaskResultEntity())));
+        when(summarizer.buildSummary(any(), any(), any(), any(), any())).thenReturn(summaryWithOneIssue());
+        when(llmClient.query(any(), same(channel))).thenThrow(new LLMClientException("调用失败"))
+                .thenReturn(new LLMResponse("{\"findings\":[],\"actions\":[]}", List.of()));
+
+        ReflectionTestUtils.invokeMethod(worker, "generate", report("CONTENT"));
+
+        verify(summarizer).buildSummary(any(), any(), eq(Map.of("价格偏高", "价格偏高")), any(), any());
+        verify(service).updateReportContentPaused(eq(9L),
+                argThat(saved -> JSON.parseObject(saved).getJSONObject("advice").getString("status").equals("SUCCEEDED")), eq("合并同义维度失败"));
+        verify(service, never()).finishReport(anyLong(), any());
+    }
+
+    /** 第 2 段出现程序异常（统计出错）：不保存内容、不再调用模型，暂停等修复后重新生成，避免轮询反复重跑。 */
+    @Test
+    void shouldPauseWithoutContentWhenContentGenerationThrows() {
+        when(service.loadAnswers(9L)).thenReturn(List.of(new ReportAnswer(succeeded(), new GeoDiagnosisTaskResultEntity())));
+        when(summarizer.buildSummary(any(), any(), any(), any(), any())).thenThrow(new IllegalStateException("统计出错"));
+
+        ReflectionTestUtils.invokeMethod(worker, "generate", report("CONTENT"));
+
+        verify(service).updateReportContentPaused(9L, null, "报告内容生成出错，请联系管理员修复后重新生成报告内容");
+        verify(service, never()).finishReport(anyLong(), any());
+        verify(llmClient, never()).query(any(), any());
+    }
+
+    /** 停在第 2 段的报告（重新生成内容，或在判定段忽略失败后）直接生成报告内容，不再逐条判定。 */
+    @Test
+    void shouldStartFromContentStageWithoutJudging() {
+        when(service.loadAnswers(9L)).thenReturn(List.of(new ReportAnswer(succeeded(), new GeoDiagnosisTaskResultEntity())));
+        when(summarizer.buildSummary(any(), any(), any(), any(), any())).thenReturn(summaryWithOneIssue());
+        when(llmClient.query(any(), same(channel))).thenReturn(new LLMResponse("{\"findings\":[],\"actions\":[]}", List.of()));
+
+        ReflectionTestUtils.invokeMethod(worker, "generate", report("CONTENT"));
+
+        verify(service, never()).findNextPendingAnalysis(anyLong());
+        verify(service, never()).updateReportStageContent(anyLong());
+        verify(service).finishReport(eq(9L), any());
+    }
+
+    /** 没有已启用渠道时暂停在判定段，配好渠道后由用户重试；不进入判定，也不把报告标为失败。 */
+    @Test
+    void shouldPauseReportWithoutEnabledChannel() {
         when(router.selectDefaultChannel()).thenThrow(new LLMClientException("没有符合渠道及模型条件的已启用模型配置"));
 
-        ReflectionTestUtils.invokeMethod(worker, "generate", report());
+        ReflectionTestUtils.invokeMethod(worker, "generate", report("JUDGE"));
 
-        verify(service).failReport(9L, "没有已启用的模型渠道，无法判定");
+        verify(service).updateReportPaused(9L, "没有已启用的模型渠道，配置后请重试");
+        verify(service, never()).failReport(anyLong(), any());
         verify(service, never()).findNextPendingAnalysis(anyLong());
+    }
+
+    /** 冻结的判定渠道已被删除时报告失败：重跑不换渠道，只能重新生成一份。 */
+    @Test
+    void shouldFailReportWhenFrozenJudgeChannelDeleted() {
+        var report = report("CONTENT");
+        report.setJudgeChannelSnapshot("{\"id\":5}");
+
+        ReflectionTestUtils.invokeMethod(worker, "generate", report);
+
+        verify(service).failReport(9L, "判定渠道已被删除，请重新生成报告");
+        verify(service, never()).loadAnswers(anyLong());
     }
 
     @BeforeEach
@@ -179,7 +242,7 @@ class DiagnosisReportWorkerTest {
         when(analysisPrompt.buildPrompt(any(), any(), any(), any())).thenReturn("判定提示词");
     }
 
-    /** @return 只含一个规则问题 P1 的汇总，⑦ 没有地域 */
+    /** @return 只含一个规则问题 P1 的内容，⑦ 没有地域 */
     private JSONObject summaryWithOneIssue() {
         JSONArray issues = new JSONArray();
         issues.add(new JSONObject().fluentPut("id", "P1").fluentPut("title", "千问很少提到目标"));
@@ -187,12 +250,24 @@ class DiagnosisReportWorkerTest {
                 .fluentPut("region", new JSONObject().fluentPut("unassignedAnswers", 0).fluentPut("regions", new JSONArray()));
     }
 
-    /** @return 待生成的报告，报告语言为英语，尚未冻结判定渠道 */
-    private GeoDiagnosisReportEntity report() {
+    /** @return 含规则问题 P1，且 ⑦ 有一个带机会的地域“美国”的内容 */
+    private JSONObject summaryWithRegion() {
+        JSONObject summary = summaryWithOneIssue();
+        summary.getJSONObject("region").getJSONArray("regions").add(JSON.parseObject(
+                "{\"name\":\"美国\",\"portrayal\":{},\"opportunities\":[{\"id\":\"R1-O1\",\"title\":\"竞品占位\"}]}"));
+        return summary;
+    }
+
+    /**
+     * @param stage 报告停在的段：JUDGE 判定每条回答，CONTENT 生成报告内容
+     * @return 生成中的报告，报告语言为英语，尚未冻结判定渠道
+     */
+    private GeoDiagnosisReportEntity report(String stage) {
         var report = new GeoDiagnosisReportEntity();
         report.setId(9L);
         report.setTaskId(30L);
         report.setStatus("RUNNING");
+        report.setStage(stage);
         report.setReportLanguage("英语");
         return report;
     }
@@ -213,6 +288,13 @@ class DiagnosisReportWorkerTest {
     private GeoDiagnosisReportResultAnalysisEntity succeeded() {
         var analysis = new GeoDiagnosisReportResultAnalysisEntity();
         analysis.setStatus("SUCCEEDED");
+        return analysis;
+    }
+
+    /** @return 判定成功、带“价格偏高”保留意见（需要维度归一）的分析记录 */
+    private GeoDiagnosisReportResultAnalysisEntity succeededWithDimension() {
+        var analysis = succeeded();
+        analysis.setPoints("[{\"type\":\"RESERVATION\",\"dimension\":\"价格偏高\",\"quote\":\"贵\"}]");
         return analysis;
     }
 }

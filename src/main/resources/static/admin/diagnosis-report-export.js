@@ -28,8 +28,6 @@
         documentNode.append(element("h1", null, "诊断报告 #" + report.id), element("p", "report-export-note", view.buildReportNote(report)),
             element("p", "report-export-note", "导出时间：" + window.AdminFormat.dateTime(new Date())));
         if (modelFilter) documentNode.append(view.buildModelFilterNote(modelName));
-        // 导出网页无法补全，缺失内容在抬头提醒先补全再导出
-        if (report.missingParts?.length) documentNode.append(element("p", "report-filter-note", "本报告有缺失内容（见各部分提示），建议先在系统中点击「补全报告」，完成后再导出。"));
 
         // 2. 页签栏与各页签内容；查看入口是打开弹窗的链接，同时收集正文引用到的证据和回答
         const refs = {evidenceGroups:new Map(), resultIds:new Set()};

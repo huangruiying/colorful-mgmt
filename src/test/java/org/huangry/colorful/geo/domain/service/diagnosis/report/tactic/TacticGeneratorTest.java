@@ -39,7 +39,7 @@ class TacticGeneratorTest {
         assertEquals("优化建议生成失败，可先查看规则发现的问题", advice.getString("errorMessage"));
     }
 
-    /** 每个有机会的地域调用一次模型；某个地域失败只影响该地域，没有机会的地域不调用模型。 */
+    /** 每个有机会的地域调用一次模型；某个地域失败只影响该地域并返回其名称，没有机会的地域不调用模型、不算失败。 */
     @Test
     void shouldGenerateStrategyPerRegionAndIsolateFailures() {
         when(llmClient.query(any(), same(channel)))
@@ -50,7 +50,7 @@ class TacticGeneratorTest {
                             {"name":"德国","portrayal":{},"opportunities":[{"id":"R2-O1"}]},
                             {"name":"日本","portrayal":{},"opportunities":[]}]}""");
 
-        generator.generateRegionStrategies(regionReport, new JSONObject().fluentPut("name", "Olight"), channel, 9L, "中文");
+        List<String> failedRegions = generator.generateRegionStrategies(regionReport, new JSONObject().fluentPut("name", "Olight"), channel, 9L, "中文");
 
         JSONArray regions = regionReport.getJSONArray("regions");
         JSONObject usa = regions.getJSONObject(0).getJSONObject("strategy");
@@ -59,6 +59,7 @@ class TacticGeneratorTest {
         assertEquals("FAILED", regions.getJSONObject(1).getJSONObject("strategy").getString("status"));
         assertEquals("NO_OPPORTUNITIES", regions.getJSONObject(2).getJSONObject("strategy").getString("status"));
         verify(llmClient, times(2)).query(any(), same(channel));
+        assertEquals(List.of("德国"), failedRegions);
     }
 
     /** @return 使用真实提示词组件与模型替身的建议与策略生成 */
