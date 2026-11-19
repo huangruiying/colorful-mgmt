@@ -23,11 +23,13 @@ class DimensionNormalizerTest {
     private final LLMClient llmClient = mock(LLMClient.class);
     private final GeoLlmChannelEntity channel = new GeoLlmChannelEntity();
     private final DimensionNormalizer normalizer = normalizer();
+    /** 测试用的合并同义维度模板，只保留两个变量，检查取值是否填对。 */
+    private static final String TEMPLATE = "合并下列维度，用{{reportLanguage}}书写：\n{{dimensions}}";
 
     /** 没有维度时不调用模型，结果为空映射且不算失败。 */
     @Test
     void shouldSkipModelWhenNoDimensions() {
-        assertEquals(new DimensionNormalization(Map.of(), false), normalizer.normalizeDimensions(List.of(), channel, 9L, "中文"));
+        assertEquals(new DimensionNormalization(Map.of(), false), normalizer.normalizeDimensions(List.of(), channel, 9L, "中文", TEMPLATE));
         verifyNoInteractions(llmClient);
     }
 
@@ -37,7 +39,7 @@ class DimensionNormalizerTest {
         when(llmClient.query(any(), same(channel))).thenThrow(new LLMClientException("调用失败"));
 
         assertEquals(new DimensionNormalization(Map.of("价格偏高", "价格偏高"), true),
-                normalizer.normalizeDimensions(answersWithDimension(), channel, 9L, "中文"));
+                normalizer.normalizeDimensions(answersWithDimension(), channel, 9L, "中文", TEMPLATE));
     }
 
     /** 模型输出不是 JSON：同样保持原名并标记失败，不再当作归一成功。 */
@@ -46,7 +48,7 @@ class DimensionNormalizerTest {
         when(llmClient.query(any(), same(channel))).thenReturn(new LLMResponse("不是 JSON", List.of()));
 
         assertEquals(new DimensionNormalization(Map.of("价格偏高", "价格偏高"), true),
-                normalizer.normalizeDimensions(answersWithDimension(), channel, 9L, "中文"));
+                normalizer.normalizeDimensions(answersWithDimension(), channel, 9L, "中文", TEMPLATE));
     }
 
     /** 模型返回归一结果时按映射合并同义维度；归一名称按报告语言书写，调用不联网。 */
@@ -55,8 +57,8 @@ class DimensionNormalizerTest {
         when(llmClient.query(any(), same(channel))).thenReturn(new LLMResponse("{\"价格偏高\":\"Price\"}", List.of()));
 
         assertEquals(new DimensionNormalization(Map.of("价格偏高", "Price"), false),
-                normalizer.normalizeDimensions(answersWithDimension(), channel, 9L, "英语"));
-        verify(llmClient).query(argThat(request -> request.prompt().contains("用英语书写") && !request.enableWebSearch()), same(channel));
+                normalizer.normalizeDimensions(answersWithDimension(), channel, 9L, "英语", TEMPLATE));
+        verify(llmClient).query(argThat(request -> request.prompt().equals("合并下列维度，用英语书写：\n价格偏高") && !request.enableWebSearch()), same(channel));
     }
 
     /** @return 一条判定成功、带“价格偏高”保留意见的回答 */

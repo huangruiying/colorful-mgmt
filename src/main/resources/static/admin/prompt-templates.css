@@ -1,0 +1,22 @@
+/* 提示词管理页：上方选择提示词，左侧编辑框，右侧可用变量与历史版本 */
+.prompt-toolbar { align-items:flex-end; flex-wrap:wrap; }
+.prompt-select { min-width:320px; }
+.prompt-version-note { margin:0; color:#73849b; font-size:13px; }
+.prompt-layout { display:grid; grid-template-columns:minmax(0,1fr) 360px; gap:24px; padding:20px 24px 24px; }
+.prompt-editor textarea { display:block; width:100%; min-height:560px; padding:14px; border:1px solid #d7e1ed; border-radius:8px; box-sizing:border-box;
+    color:#263d5a; background:white; font:13px/1.65 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; resize:vertical; tab-size:4; }
+.prompt-editor textarea:focus { outline:2px solid #bad4fb; border-color:#669ded; }
+.prompt-editor textarea:disabled { background:#f7f9fd; }
+.prompt-help { margin:10px 0; color:#73849b; font-size:13px; line-height:1.7; }
+.prompt-side h2 { margin:0 0 6px; color:#213a5b; font-size:15px; }
+.prompt-side h2:not(:first-child) { margin-top:24px; }
+.prompt-variables { width:100%; border-collapse:collapse; font-size:13px; }
+.prompt-variables th { padding:6px 4px; color:#73849b; font-weight:500; text-align:left; border-bottom:1px solid #edf1f6; }
+.prompt-variables td { padding:8px 4px; color:#33465e; line-height:1.6; vertical-align:top; border-bottom:1px solid #f0f3f7; }
+.prompt-variables code { color:#245faa; font-size:12px; white-space:nowrap; }
+.prompt-required { display:inline-block; margin-left:6px; padding:0 6px; border-radius:5px; background:#fff1f0; color:#a13031; font-size:11px; }
+.prompt-versions { list-style:none; margin:0; padding:0; font-size:13px; }
+.prompt-versions li { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 0; color:#33465e; border-bottom:1px solid #f0f3f7; }
+.prompt-current { padding:1px 8px; border-radius:5px; background:#eaf8ef; color:#247348; font-size:12px; }
+.prompt-empty { color:#9aa9bb; }
+@media(max-width:1100px) { .prompt-layout { grid-template-columns:1fr; } .prompt-editor textarea { min-height:420px; } }

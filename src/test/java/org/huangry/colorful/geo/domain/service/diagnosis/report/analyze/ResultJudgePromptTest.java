@@ -2,14 +2,16 @@ package org.huangry.colorful.geo.domain.service.diagnosis.report.analyze;
 
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
+import org.huangry.colorful.geo.infrastructure.common.enums.PromptTemplateKey;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/** 判定提示词与输出校验：名称统一、原文片段校验、枚举与分组限制；样例取自本地真实回答。 */
+/** 判定提示词的变量取值与输出校验：名称统一、原文片段校验、枚举与分组限制；样例取自本地真实回答。 */
 class ResultJudgePromptTest {
     private final ResultJudgePrompt analysisPrompt = analysisPrompt();
     private final JSONObject project = JSON.parseObject("""
@@ -77,26 +79,26 @@ class ResultJudgePromptTest {
         assertThrows(IllegalArgumentException.class, () -> analysisPrompt.parseAnalysisResult("{brands:[", answer, "NON_BRAND", project));
     }
 
-    /** 点名问题附项目资料用于判断准确性，其他分组不附，避免模型用资料替代回答内容。 */
+    /** 点名问题附项目资料用于判断准确性，其他分组该处留空，避免模型用资料替代回答内容；别名与竞品用顿号连接，回答原样填入。 */
     @Test
-    void shouldAttachProjectFactsOnlyForBrandQuestions() {
-        String brandPrompt = analysisPrompt.buildPrompt(project, JSON.parseObject("{\"text\":\"团油靠谱吗\",\"brandScope\":\"BRAND\"}"), answer, "中文");
-        String nonBrandPrompt = analysisPrompt.buildPrompt(project, JSON.parseObject("{\"text\":\"加油省钱\",\"brandScope\":\"NON_BRAND\"}"), answer, "中文");
+    void shouldFillJudgeVariablesAndAttachProjectFactsOnlyForBrandQuestions() {
+        String template = "{{target}}|{{aliases}}|{{competitors}}|{{brandScope}}|{{question}}|{{projectMaterials}}|{{answer}}|{{reportLanguage}}";
+        String brandPrompt = analysisPrompt.buildPrompt(template, project, JSON.parseObject("{\"text\":\"团油靠谱吗\",\"brandScope\":\"BRAND\"}"), answer, "中文");
+        String nonBrandPrompt = analysisPrompt.buildPrompt(template, project, JSON.parseObject("{\"text\":\"加油省钱\",\"brandScope\":\"NON_BRAND\"}"), answer, "英语");
 
-        assertTrue(brandPrompt.contains("核心卖点：站点多"));
-        assertFalse(nonBrandPrompt.contains("核心卖点：站点多"));
-        assertTrue(nonBrandPrompt.contains("能链团油、车主邦"));
-        assertTrue(nonBrandPrompt.contains(answer));
+        assertEquals("团油|能链团油、车主邦|易加油、支付宝加油服务、小桔加油（滴滴加油）|NON_BRAND|加油省钱||" + answer + "|英语", nonBrandPrompt);
+        assertTrue(brandPrompt.contains("|BRAND|团油靠谱吗|【项目资料，仅用于判断回答对目标的描述是否准确】\n核心功能：加油优惠\n核心卖点：站点多\n"
+                + "价格说明：按站点\n目标用户：车主\n|"));
     }
 
-    /** 观点概括与维度名按报告语言书写，原文片段保持回答的语言，外语回答的报告才不会中外文混排。 */
+    /** 判定提示词声明的每个变量代码都给了取值，模板用到哪个都能填上。 */
     @Test
-    void shouldWriteSummariesInReportLanguageAndKeepQuotesOriginal() {
-        String prompt = analysisPrompt.buildPrompt(project, JSON.parseObject("{\"text\":\"Which fuel app is best?\",\"brandScope\":\"NON_BRAND\"}"),
-                "Tuanyou is the best.", "英语");
+    void shouldSupplyEveryDeclaredVariable() {
+        String template = PromptTemplateKey.DIAGNOSIS_REPORT_RESULT_JUDGE.getVariables().stream()
+                .map(variable -> "{{" + variable.name() + "}}").collect(Collectors.joining("|"));
 
-        assertTrue(prompt.contains("points 的 content 和 dimension 用英语书写"));
-        assertTrue(prompt.contains("quote 保持回答原文的语言，不翻译"));
+        assertFalse(analysisPrompt.buildPrompt(template, project, JSON.parseObject("{\"text\":\"q\",\"brandScope\":\"COMPARISON\"}"), answer, "中文")
+                .contains("{{"));
     }
 
     /** @return 注入规则组件的判定器 */

@@ -21,11 +21,14 @@ class TacticGeneratorTest {
     private final LLMClient llmClient = mock(LLMClient.class);
     private final GeoLlmChannelEntity channel = new GeoLlmChannelEntity();
     private final TacticGenerator generator = generator();
+    /** 测试用的建议与地域策略模板，内容不影响生成逻辑。 */
+    private static final String ADVICE_TEMPLATE = "建议 {{target}} {{issues}} 用{{reportLanguage}}书写";
+    private static final String STRATEGY_TEMPLATE = "策略 {{region}} {{opportunities}} 用{{reportLanguage}}书写";
 
     /** 没有规则问题时不调用模型，建议记为没有需要处理的问题。 */
     @Test
     void shouldSkipModelWhenNoIssues() {
-        assertEquals("NO_ISSUES", generator.generateAdvice(new JSONArray(), new JSONObject(), channel, 9L, "中文").getString("status"));
+        assertEquals("NO_ISSUES", generator.generateAdvice(new JSONArray(), new JSONObject(), channel, 9L, "中文", ADVICE_TEMPLATE).getString("status"));
         verifyNoInteractions(llmClient);
     }
 
@@ -34,7 +37,7 @@ class TacticGeneratorTest {
     void shouldMarkAdviceFailedWhenModelFails() {
         when(llmClient.query(any(), same(channel))).thenThrow(new LLMClientException("调用失败"));
 
-        JSONObject advice = generator.generateAdvice(JSON.parseArray("[{\"id\":\"P1\"}]"), new JSONObject().fluentPut("name", "团油"), channel, 9L, "中文");
+        JSONObject advice = generator.generateAdvice(JSON.parseArray("[{\"id\":\"P1\"}]"), new JSONObject().fluentPut("name", "团油"), channel, 9L, "中文", ADVICE_TEMPLATE);
         assertEquals("FAILED", advice.getString("status"));
         assertEquals("优化建议生成失败，可先查看规则发现的问题", advice.getString("errorMessage"));
     }
@@ -51,9 +54,9 @@ class TacticGeneratorTest {
                  {"name":"日本","portrayal":{},"opportunities":[]}]""");
         JSONObject project = new JSONObject().fluentPut("name", "Olight");
 
-        JSONObject usa = generator.generateRegionStrategy(regions.getJSONObject(0), project, channel, 9L, "中文");
-        JSONObject germany = generator.generateRegionStrategy(regions.getJSONObject(1), project, channel, 9L, "中文");
-        JSONObject japan = generator.generateRegionStrategy(regions.getJSONObject(2), project, channel, 9L, "中文");
+        JSONObject usa = generator.generateRegionStrategy(regions.getJSONObject(0), project, channel, 9L, "中文", STRATEGY_TEMPLATE);
+        JSONObject germany = generator.generateRegionStrategy(regions.getJSONObject(1), project, channel, 9L, "中文", STRATEGY_TEMPLATE);
+        JSONObject japan = generator.generateRegionStrategy(regions.getJSONObject(2), project, channel, 9L, "中文", STRATEGY_TEMPLATE);
 
         assertEquals("SUCCEEDED", usa.getString("status"));
         assertEquals("进入推荐清单", usa.getJSONArray("mentionPlays").getJSONObject(0).getString("title"));
@@ -66,7 +69,7 @@ class TacticGeneratorTest {
     /** 没有规则问题的建议算无需执行，不算失败。 */
     @Test
     void shouldTreatAdviceWithoutIssuesAsSkipped() {
-        JSONObject advice = generator.generateAdvice(new JSONArray(), new JSONObject(), channel, 9L, "中文");
+        JSONObject advice = generator.generateAdvice(new JSONArray(), new JSONObject(), channel, 9L, "中文", ADVICE_TEMPLATE);
 
         assertTrue(TacticGenerator.isSkipped(advice));
         assertFalse(TacticGenerator.isFailed(advice));

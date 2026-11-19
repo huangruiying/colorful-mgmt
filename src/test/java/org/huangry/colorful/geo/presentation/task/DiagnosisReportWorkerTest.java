@@ -16,15 +16,18 @@ import org.huangry.colorful.geo.domain.service.diagnosis.DiagnosisTaskSnapshots;
 import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisReportService;
 import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisReportService.ReportAnswer;
 import org.huangry.colorful.geo.domain.service.llm.GeoLlmChannelService;
+import org.huangry.colorful.geo.domain.service.prompt.GeoPromptTemplateService;
 import org.huangry.colorful.geo.infrastructure.client.llm.LLMClient;
 import org.huangry.colorful.geo.infrastructure.client.llm.LLMStrategyRouter;
 import org.huangry.colorful.geo.infrastructure.client.llm.model.LLMQueryRequest;
 import org.huangry.colorful.geo.infrastructure.client.llm.model.LLMResponse;
+import org.huangry.colorful.geo.infrastructure.common.enums.PromptTemplateKey;
 import org.huangry.colorful.geo.infrastructure.common.exceptions.LLMClientException;
 import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisReportResultAnalysisEntity;
 import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisTaskResultEntity;
 import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisReportEntity;
 import org.huangry.colorful.geo.infrastructure.repository.entity.GeoLlmChannelEntity;
+import org.huangry.colorful.geo.infrastructure.repository.entity.GeoPromptTemplateEntity;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -34,6 +37,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.sql.Connection;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -52,6 +56,9 @@ class DiagnosisReportWorkerTest {
     private final LLMClient llmClient = mock(LLMClient.class);
     private final LLMStrategyRouter router = mock(LLMStrategyRouter.class);
     private final DiagnosisTaskSnapshots snapshots = mock(DiagnosisTaskSnapshots.class);
+    private final GeoPromptTemplateService promptTemplates = mock(GeoPromptTemplateService.class);
+    /** 判定提示词的当前版本：第 2 版，内容只用于确认传给了判定。 */
+    private final GeoPromptTemplateEntity judgeTemplate = template(2, "判定模板");
     private final GeoLlmChannelEntity channel = new GeoLlmChannelEntity();
 
     /** 首次生成冻结默认渠道；一条判定成功、一条模型失败时继续判完，再按失败原因暂停在判定段，不生成报告内容。 */
@@ -65,14 +72,15 @@ class DiagnosisReportWorkerTest {
 
         ReflectionTestUtils.invokeMethod(worker, "generate", report("JUDGE"));
 
-        verify(service).freezeJudgeChannel(eq(9L), any(), eq(ResultJudgePrompt.PROMPT_VERSION));
+        verify(service).freezeJudgeChannel(eq(9L), any());
+        verify(service).freezeJudgePromptVersion(9L, "v2");
         verify(service).updateAnalysisSucceeded(argThat(saved -> saved.getId() == 1L));
         verify(service).updateAnalysisFailed(eq(2L), eq("判定模型不可用或未返回有效回答"), any());
         verify(service).updateReportPaused(9L, "判定失败 1 条：判定模型不可用或未返回有效回答 1 条");
         verify(service, never()).updateReportStageContent(anyLong());
         verify(service, never()).loadAnswers(anyLong());
         // 逐条判定按报告语言组装提示词，判定只看回答原文，不联网
-        verify(analysisPrompt, times(2)).buildPrompt(any(), any(), any(), eq("英语"));
+        verify(analysisPrompt, times(2)).buildPrompt(eq("判定模板"), any(), any(), any(), eq("英语"));
         verify(llmClient, never()).query(argThat(LLMQueryRequest::enableWebSearch), any());
     }
 
@@ -212,6 +220,50 @@ class DiagnosisReportWorkerTest {
         verify(service, never()).loadAnswers(anyLong());
     }
 
+    /** 续跑时按报告冻结的版本取判定提示词，不换成当前版本，也不重新冻结，同一份报告判定口径一致。 */
+    @Test
+    void shouldResumeJudgingWithFrozenPromptVersion() {
+        var report = report("JUDGE");
+        report.setPromptVersion("v2");
+        when(service.findNextPendingAnalysis(9L)).thenReturn(analysis(1L), (GeoDiagnosisReportResultAnalysisEntity) null);
+        when(llmClient.query(any(), same(channel))).thenReturn(new LLMResponse("{}", List.of()));
+        when(analysisPrompt.parseAnalysisResult(any(), any(), any(), any())).thenReturn(new ResultJudgePrompt.AnalysisResult(new JSONArray(), new JSONArray(), null, null));
+
+        ReflectionTestUtils.invokeMethod(worker, "generate", report);
+
+        verify(promptTemplates).getTemplate(PromptTemplateKey.DIAGNOSIS_REPORT_RESULT_JUDGE, 2);
+        verify(promptTemplates, never()).getCurrentTemplate(PromptTemplateKey.DIAGNOSIS_REPORT_RESULT_JUDGE);
+        verify(service, never()).freezeJudgePromptVersion(anyLong(), any());
+        verify(analysisPrompt).buildPrompt(eq("判定模板"), any(), any(), any(), any());
+    }
+
+    /** 判定提示词还没配置时暂停在判定段，写明缺哪个提示词，不进入判定。 */
+    @Test
+    void shouldPauseWhenJudgePromptMissing() {
+        when(promptTemplates.getCurrentTemplate(PromptTemplateKey.DIAGNOSIS_REPORT_RESULT_JUDGE))
+                .thenThrow(new NoSuchElementException("提示词未配置：诊断报告-逐条判定提示词"));
+
+        ReflectionTestUtils.invokeMethod(worker, "generate", report("JUDGE"));
+
+        verify(service).updateReportPaused(9L, "提示词未配置：诊断报告-逐条判定提示词，请在提示词管理中检查后点重试（重试改用最新版）");
+        verify(service, never()).findNextPendingAnalysis(anyLong());
+        verify(service, never()).updateReportStageContent(anyLong());
+    }
+
+    /** 第 2 段的提示词缺失时暂停在第 2 段，不调用模型、不保存内容，补上后由用户重试。 */
+    @Test
+    void shouldPauseWhenContentPromptMissing() {
+        when(service.loadAnswers(9L)).thenReturn(List.of(new ReportAnswer(succeeded(), new GeoDiagnosisTaskResultEntity())));
+        when(promptTemplates.getCurrentTemplate(PromptTemplateKey.DIAGNOSIS_REPORT_ADVICE))
+                .thenThrow(new NoSuchElementException("提示词未配置：诊断报告-优化建议提示词"));
+
+        ReflectionTestUtils.invokeMethod(worker, "generate", report("CONTENT"));
+
+        verify(service).updateReportContentPaused(9L, null, "提示词未配置：诊断报告-优化建议提示词，请在提示词管理中补上后重试", null);
+        verify(service, never()).finishReport(anyLong(), any(), any());
+        verify(llmClient, never()).query(any(), any());
+    }
+
     @BeforeEach
     void setup() throws Exception {
         Connection lease = mock(Connection.class);
@@ -249,7 +301,16 @@ class DiagnosisReportWorkerTest {
         result.setCitations("[]");
         result.setQuestionSnapshot("{\"text\":\"问题\",\"brandScope\":\"NON_BRAND\"}");
         when(service.getTaskResult(anyLong())).thenReturn(result);
-        when(analysisPrompt.buildPrompt(any(), any(), any(), any())).thenReturn("判定提示词");
+        when(analysisPrompt.buildPrompt(any(), any(), any(), any(), any())).thenReturn("判定提示词");
+        ReflectionTestUtils.setField(worker, "geoPromptTemplateService", promptTemplates);
+        when(promptTemplates.getCurrentTemplate(PromptTemplateKey.DIAGNOSIS_REPORT_RESULT_JUDGE)).thenReturn(judgeTemplate);
+        when(promptTemplates.getTemplate(PromptTemplateKey.DIAGNOSIS_REPORT_RESULT_JUDGE, 2)).thenReturn(judgeTemplate);
+        when(promptTemplates.getCurrentTemplate(PromptTemplateKey.DIAGNOSIS_REPORT_DIMENSION))
+                .thenReturn(template(1, "合并维度，用{{reportLanguage}}书写：\n{{dimensions}}"));
+        when(promptTemplates.getCurrentTemplate(PromptTemplateKey.DIAGNOSIS_REPORT_ADVICE))
+                .thenReturn(template(1, "建议 {{target}} {{issues}} 用{{reportLanguage}}书写"));
+        when(promptTemplates.getCurrentTemplate(PromptTemplateKey.DIAGNOSIS_REPORT_REGION_STRATEGY))
+                .thenReturn(template(1, "策略 {{region}} {{opportunities}} 用{{reportLanguage}}书写"));
     }
 
     /**
@@ -302,6 +363,18 @@ class DiagnosisReportWorkerTest {
         analysis.setTaskResultId(id);
         analysis.setStatus("PENDING");
         return analysis;
+    }
+
+    /**
+     * @param version 版本号
+     * @param content 模板内容
+     * @return 一版提示词
+     */
+    private GeoPromptTemplateEntity template(int version, String content) {
+        var template = new GeoPromptTemplateEntity();
+        template.setVersion(version);
+        template.setContent(content);
+        return template;
     }
 
     /** @return 判定成功的分析记录 */

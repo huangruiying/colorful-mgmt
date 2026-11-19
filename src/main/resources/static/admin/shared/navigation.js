@@ -20,6 +20,7 @@
             {file:"project-info-import-export.html", title:"数据导入导出", icon:"⇄"},
             {file:"model-config.html", title:"模型配置", icon:"＋"},
             {file:"models.html", title:"模型列表", icon:"▦"},
+            {file:"prompt-templates.html", title:"提示词管理", icon:"✎"},
             {file:"browser-login.html", title:"浏览器登录管理", icon:"◈"}
         ]}
     ];

@@ -146,7 +146,7 @@ class GeoDiagnosisReportServiceTest {
         assertThrows(IllegalStateException.class, () -> service.updateAnalysisFailed(8L, "原因", "[]"));
     }
 
-    /** 重判：失败的回答改回待判定并清空旧原因与来源，报告回到待生成、停在判定段，暂停原因与结束时间清空；已暂停和已完成的报告都可以。 */
+    /** 重判：失败的回答改回待判定并清空旧原因与来源，报告回到待生成、停在判定段，暂停原因、结束时间与冻结的判定提示词版本清空（重判用最新版）；已暂停和已完成的报告都可以。 */
     @Test
     void shouldRequeueReportToJudgeStageWhenRejudging() {
         for (String status : List.of("PAUSED", "SUCCEEDED")) {
@@ -159,7 +159,7 @@ class GeoDiagnosisReportServiceTest {
             var analysisUpdate = ArgumentCaptor.forClass(Wrapper.class);
             verify(analyses).update(isNull(), analysisUpdate.capture());
             assertSets(analysisUpdate.getValue(), "status", "PENDING", "error_message", null, "sources", null);
-            assertSets(captureReportUpdate(), "stage", "JUDGE", "status", "PENDING", "error_message", null, "finished_at", null, "content_progress", null);
+            assertSets(captureReportUpdate(), "stage", "JUDGE", "status", "PENDING", "error_message", null, "finished_at", null, "content_progress", null, "prompt_version", null);
             verify(tasks).selectOne(any());
         }
     }

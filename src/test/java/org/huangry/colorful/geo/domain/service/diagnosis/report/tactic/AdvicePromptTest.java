@@ -39,13 +39,19 @@ class AdvicePromptTest {
         assertThrows(IllegalArgumentException.class, () -> advicePrompt.parseAdvice("无法回答", issues));
     }
 
-    /** 提示词带上全部问题编号和报告语言，模型才能引用并用报告语言书写。 */
+    /** 模板里的目标、卖点、问题列表与报告语言都按变量名填上：问题列表是完整 JSON，模型才能引用编号；没填卖点时留空。 */
     @Test
-    void shouldIncludeIssuesInPrompt() {
-        String prompt = advicePrompt.buildPrompt(new JSONObject().fluentPut("name", "团油"), issues, "日语");
+    void shouldFillAdviceVariables() {
+        String prompt = advicePrompt.buildPrompt("【目标】{{target}}|{{sellingPoints}}|{{issues}}|用{{reportLanguage}}书写",
+                new JSONObject().fluentPut("name", "团油"), issues, "日语");
 
-        assertTrue(prompt.contains("【目标】团油"));
-        assertTrue(prompt.contains("\"id\":\"P2\""));
-        assertTrue(prompt.contains("findings 和 actions 的文字用日语书写"));
+        assertEquals("【目标】团油||" + JSON.toJSONString(issues) + "|用日语书写", prompt);
+        assertFalse(advicePrompt.buildPrompt(allVariables(), new JSONObject().fluentPut("name", "团油"), issues, "日语").contains("{{"));
+    }
+
+    /** @return 写满优化建议提示词声明的全部变量的模板，用于确认代码每个都给了取值 */
+    private String allVariables() {
+        return org.huangry.colorful.geo.infrastructure.common.enums.PromptTemplateKey.DIAGNOSIS_REPORT_ADVICE.getVariables().stream()
+                .map(variable -> "{{" + variable.name() + "}}").collect(java.util.stream.Collectors.joining("|"));
     }
 }

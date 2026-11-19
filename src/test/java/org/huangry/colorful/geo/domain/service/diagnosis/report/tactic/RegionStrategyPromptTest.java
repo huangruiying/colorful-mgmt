@@ -47,19 +47,20 @@ class RegionStrategyPromptTest {
                  "mentionPlays":[{"title":"x","steps":["a"],"evidenceStatus":"INFERRED","opportunityIds":["R9-O1"]}]}""", opportunities));
     }
 
-    /** 提示词带上地域、机会编号、证据状态规则和报告语言，模型才能引用、标注推测并用报告语言书写。 */
+    /** 模板里的地域名称、竞品、样本、宣传状态、可见度、机会清单与报告语言都按变量名填上，机会清单是完整 JSON，模型才能引用编号。 */
     @Test
-    void shouldIncludeRegionDataInPrompt() {
-        JSONObject region = new JSONObject().fluentPut("name", "德国").fluentPut("sample", new JSONObject()).fluentPut("portrayal", new JSONObject())
-                .fluentPut("visibility", new JSONObject()).fluentPut("opportunities", opportunities);
+    void shouldFillRegionVariables() {
+        JSONObject region = new JSONObject().fluentPut("name", "德国").fluentPut("sample", new JSONObject().fluentPut("questions", 3))
+                .fluentPut("portrayal", new JSONObject().fluentPut("status", "NEUTRAL")).fluentPut("visibility", new JSONObject()).fluentPut("opportunities", opportunities);
+        JSONObject project = new JSONObject().fluentPut("name", "Olight").fluentPut("competitors", JSON.parseArray("[\"Fenix\"]"));
 
-        String prompt = regionStrategyPrompt.buildPrompt(new JSONObject().fluentPut("name", "Olight").fluentPut("competitors", JSON.parseArray("[\"Fenix\"]")),
-                region, "英语");
+        String prompt = regionStrategyPrompt.buildPrompt("{{target}}|{{sellingPoints}}|{{competitors}}|【地域】{{region}}|{{sample}}|{{visibility}}|{{opportunities}}|用{{reportLanguage}}书写",
+                project, region, "英语");
 
-        assertTrue(prompt.contains("【地域】德国"));
-        assertTrue(prompt.contains("\"id\":\"R1-O4\""));
-        assertTrue(prompt.contains("对当地市场、平台、渠道的判断属于推测，用 INFERRED"));
-        assertTrue(prompt.contains("用英语书写"));
+        assertEquals("Olight||[\"Fenix\"]|【地域】德国|{\"questions\":3}|{}|" + JSON.toJSONString(opportunities) + "|用英语书写", prompt);
+        String allVariables = org.huangry.colorful.geo.infrastructure.common.enums.PromptTemplateKey.DIAGNOSIS_REPORT_REGION_STRATEGY.getVariables().stream()
+                .map(variable -> "{{" + variable.name() + "}}").collect(java.util.stream.Collectors.joining("|"));
+        assertFalse(regionStrategyPrompt.buildPrompt(allVariables, project, region, "英语").contains("{{"));
     }
 
     /** @return 每条策略的标题 */
