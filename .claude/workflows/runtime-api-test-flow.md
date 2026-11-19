@@ -7,7 +7,7 @@
 ## 0. 强制引用
 
 - 执行前必须加载 `agents/builders/31-runtime-api-test.md`、`rules/runtime-api-test.md`、`rules/testing.md`。
-- 启动 / 重启 / 编译 / 脚本执行必须按 `rules/runtime-api-test.md` 读取 IDE 真实配置；IDE 只作为 JDK / Maven / Python / 工作目录 / 参数 / 环境变量来源，服务由自动化命令等价启动，不操作 IDE GUI。
+- 启动 / 重启 / 编译 / 脚本执行必须按 `rules/runtime-api-test.md` 读取 IDE 真实配置；IDE 只作为 JDK / Maven / 工作目录 / 参数 / 环境变量来源，服务由自动化命令等价启动，不操作 IDE GUI。
 - 单次自愈、外部依赖临时 mock、临时代码、测试数据、日志归因、报告字段、非常规处理、已知陷阱均以 `rules/runtime-api-test.md` 为唯一细则来源，本 Workflow 不重复维护。
 
 ---
@@ -27,7 +27,6 @@
 
 字段过滤语义不明确时，先查 Controller、Service、Mapper 调用链和历史接口文档；仍不明确时向用户确认。负向断言和代码修复必须排在契约确认之后。
 
-已知教训：`support/routeNames` 的 `toCInvoiceBody` / `companyInvoiceType` 不是强查询条件；错误值仍返回路由不一定是 bug，可能符合候选集接口语义。
 
 ---
 
@@ -76,8 +75,8 @@
 
 ## 5. 严守边界
 
-- master 落后检查、两轮前置依赖检查、IDE 真实配置读取、数据增删限制、临时兼容清理均按 `rules/runtime-api-test.md` 执行。
-- 环境问题、外部依赖问题、数据问题不长期改业务代码；写接口依赖 `ContextUser` / 登录态 / 权限时，无鉴权只记录限制，不做匿名兼容。
+- 两轮前置依赖检查、IDE 真实配置读取、数据增删限制、临时兼容清理均按 `rules/runtime-api-test.md` 执行。
+- 环境问题、外部依赖问题、数据问题不长期改业务代码；接口依赖后台登录 / 权限时，无登录态只记录限制，不修改安全配置放行，也不做匿名兼容。
 - 需要改代码时必须回到 04 / 05，不在 31 内越权大改；测试脚本和测试报告可以保留在 `.test/`。
 
 ---

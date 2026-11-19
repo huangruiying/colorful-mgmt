@@ -1,32 +1,20 @@
 # 运行时环境记忆
 
-用于接口回归、联调测试、数据库校验时快速定位测试环境连接方式。
+用于编译、跑测试、接口回归和查库时快速定位本项目的运行环境。密码、密钥、Cookie 不写入 memory，需要时从环境变量或用户处获取。
 
-## 团油测试环境连接规则
+## 本机
 
-- IDE 启动参数若为 `-Dapollo.cluster=TEST01`，默认匹配团油 `01` 环境。
-- 本项目路由相关 SQL 默认库名按 Mapper 推断为 `czb_payment`，例如 `route_trade_rule_detail` 使用了 `czb_payment.route_trade_rule_detail`。
-- 数据库密码属于敏感信息，不写入长期 memory；需要时由用户在当前会话提供，或通过安全凭据渠道获取。
+- 服务：一般由 IDEA 启动，端口 8010，`BASE_URL=http://127.0.0.1:8010`；除登录页外的接口都要求登录。
+- MySQL：docker 容器 `colorful-geo-mysql`，库 `colorful_geo`。用容器内的环境变量登录，不在命令里写密码：
+  `docker exec -i colorful-geo-mysql sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot --default-character-set=utf8mb4 colorful_geo'`
+- 往临时库导入 `001_init.sql` 时，先去掉开头的 `CREATE DATABASE` 和 `USE colorful_geo;` 两行。
+- Maven：用 IDEA 自带的 `/Applications/IntelliJ IDEA.app/Contents/plugins/maven/lib/maven3/bin/mvn`，配合 `JAVA_HOME=~/Library/Java/JavaVirtualMachines/ms-17.0.17/Contents/Home`，离线执行（`-o`）。`~/Documents/maven/` 下的 Maven 会被 macOS 隐私保护拦截（Operation not permitted），沙箱外执行也一样，不要用。
+- 只跑部分测试：`-Dtest='A,B' -Dsurefire.failIfNoSpecifiedTests=false`。前端测试：`node --test src/test/js/*.cjs`。
+- 无头页面检查：playwright-core 在 `/opt/homebrew/lib/node_modules/agent-browser/node_modules/playwright-core`，浏览器用本机 Chrome。
+- 截至 2026-11-19 的既有失败：Java `LLMStrategyRouterTest.shouldRejectDisabledExactTaskChannel`；前端 11 项（browser-login 9、http 2）。判断是否新引入失败时先对照。
 
-## MySQL 环境索引
+## 服务器
 
-| 环境 | host | port | user | 默认库名 |
-|---|---|---:|---|---|
-| 01 | `10.10.11.71` | 3306 | `test_dev01` | `czb_payment` |
-| 02 | `10.10.11.122` | 3306 | `test_dev02` | `czb_payment` |
-| 03 | `10.10.11.133` | 3306 | `test_dev03` | `czb_payment` |
-| 04 | `10.10.11.76` | 3306 | `test_dev04` | `czb_payment` |
-| 05 | `10.10.11.110` | 3306 | `test_dev05` | `czb_payment` |
-| 06 | `10.10.11.22` | 3306 | `test_dev06` | `czb_payment` |
-| 07 | `10.10.11.136` | 3306 | `test_dev07` | `czb_payment` |
-
-## Redis 环境索引
-
-Redis 密码不写入长期 memory。
-
-| 环境 | host | port |
-|---|---|---:|
-| 01 | `10.10.18.4` | 6379 |
-| 02 | `10.10.18.2` | 6379 |
-| 03 | `10.10.18.5` | 6379 |
-
+- 部署目录 `/root/colorful-geo-mgmt/deploy`（见 `deploy/upload-code-to-server.sh` 的 `REMOTE_DIR`），docker compose 运行；看日志：`docker compose -f docker-compose.yaml --env-file .env logs --tail=100 app`。
+- 发新代码：已上传时在部署目录执行 `sh rebuild.sh`；未上传时在本地执行 `sh deploy/upload-code-to-server.sh -r`。
+- 改库命令由 `.doc/<分支>/*-服务器执行.md` 给出，按其中顺序先改库再发代码。

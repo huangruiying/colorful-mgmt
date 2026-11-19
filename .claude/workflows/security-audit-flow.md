@@ -34,7 +34,7 @@
 
 ## 3. 输出契约
 
-按 workflow.md 报告结果、证据和限制。**Risks 段必须含严重度**（CRITICAL / HIGH / MEDIUM / LOW），CRITICAL 必须独占一行并标 [BLOCK]。
+按 workflow.md 报告结果、证据和限制。风险清单每条标严重度（CRITICAL / HIGH / MEDIUM / LOW），CRITICAL 单独一行并标 [BLOCK]。
 
 ---
 
@@ -42,7 +42,7 @@
 
 - **不修代码**：本 workflow 只发现 + 建议，修复路由 04 / 05
 - **不做架构 / 性能**：跨界路由 02 / 12
-- **风险升级**：涉鉴权 / 密钥 / 数据隐私 → 加 26 威胁建模；大版本 / 灰度发布 → 加 28 链路演练
+- **风险升级**：按 [routing-policy.md](routing-policy.md)；涉鉴权、密钥、敏感数据时加 26 威胁建模
 
 ---
 

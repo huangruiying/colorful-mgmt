@@ -4,17 +4,19 @@
 
 ## 1. 基本约束与优先级
 
-- 使用中文交流；遵从用户本次明确要求，保留未提交改动，不自动提交。
+- 使用中文交流，Markdown 代码块标注语言；遵从用户本次明确要求。
+- 保留用户未提交改动；未经明确要求不提交、重置、清理或批量格式化。
 - 超过 10 行的非简单修改先说明目标、范围与验证方案并确认；同一方案已确认后继续执行，不重复询问。
-- 接手先读仓库 AGENTS.md、.doc/HANDOFF.md，核对 Git 状态和相关差异；交接记录是快照，当前代码与可重复验证优先。
-- 工程约定优先于通用设计模板：[project-conventions.md](rules/project-conventions.md)。
+- 接手先读仓库 AGENTS.md、.doc/HANDOFF.md，核对 Git 状态和相关差异；交接记录是快照，当前代码与可重复验证优先。多个工具共用同一工作目录时顺序交接，确需并行时用不同分支或 worktree。
+- 工程约定优先于通用设计模板：[project-conventions.md](rules/project-conventions.md)；单个模块的设计决策见其中的「模块设计决策」。
 - 注释通用原则见 [comment.md](rules/comment.md)；语言硬规则优先，Java 见 [comment-java.md](rules/comments/comment-java.md)。
 - 长期背景按 [.claude/memory/MEMORY.md](memory/MEMORY.md) 索引读取，仅加载命中的主题。未经用户明确授权不修改 memory。
+- 安全底线：不生成后门，不关闭或绕过鉴权、权限与安全校验；不在代码、日志、文档、测试输出中写入 API Key、密码、Cookie、验证码、数据库会话或带令牌的链接。
 - 安全边界、日志、测试和架构要求不能用简化代码、减少注释或编译通过替代。
 
 ## 2. 加载规则
 
-1. 必须读取本入口、项目约定和项目记忆索引；复杂任务再读取对应 Workflow。
+1. 必须读取本入口、项目约定和项目记忆索引；改到具体模块时按[代码变更流程](workflows/code-change-flow.md) §2 读取 `rules/modules/` 下对应文件；复杂任务再读取对应 Workflow。
 2. 每个文件只有在当前会话已完整读取且内容未变，或明确作为完整上下文注入时，才算已加载。
 3. Markdown 链接、索引、文件名、搜索命中和“已自动加载”的描述都不代表正文已加载。输出截断时继续按章节读取，不把截断视为完整读取。
 4. 同一任务已读的规则复用；文件变化、任务换语言或换专题时补读适用内容，不机械重读整个目录。
@@ -24,7 +26,7 @@
 
 ## 3. 任务路由
 
-流程目录和专项规则触发条件统一见 [workflow.md](workflows/workflow.md)，本入口不复制流程正文。
+Agent 清单见 [workflow.md](workflows/workflow.md)，规则与模块文件的读取条件见[代码变更流程](workflows/code-change-flow.md) §2；本入口不复制流程正文。
 
 | 任务 | 执行入口 |
 |---|---|
@@ -32,7 +34,7 @@
 | 新功能、修复、代码重构 | [代码变更流程](workflows/code-change-flow.md)，需要新需求设计时先进入 A |
 | 新需求、接口设计 | [A 功能交付](workflows/feature-delivery-flow.md) |
 | 安全、注入、依赖审计 | [B 安全审查](workflows/security-audit-flow.md) |
-| 告警、故障、慢 SQL、配置排障 | [C 故障响应](workflows/incident-response-flow.md) |
+| 报错、故障、日志排查、慢 SQL | [C 故障排查](workflows/incident-response-flow.md) |
 | 技债治理 | [D 技债治理](workflows/tech-debt-flow.md) |
 | 重构收尾 | [E 重构收尾](workflows/refactor-finalize-flow.md) |
 | 全量测试、真实接口回归、联调报告 | [F 运行时回归](workflows/runtime-api-test-flow.md) |

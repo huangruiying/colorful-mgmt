@@ -88,6 +88,8 @@
 
 禁止在未读现有代码的情况下直接生成。
 
+禁止编造不存在的接口、字段、库或业务流程；不确定时先查代码或向用户确认。
+
 ---
 
 ## 3.2 遵循已有风格
@@ -129,7 +131,7 @@
 本文件只补充代码生成范围约束：
 
 - 不为展示规范而额外添加注释
-- 不为未改动的旧代码补注释
+- 不为本次没有改动的方法补注释；本次改动过的方法（哪怕只加一个参数）按注释规则检查整个方法，缺漏一并补齐
 - 不生成与本次需求无关的解释性注释
 - 不用注释弥补过度抽象、命名不清或职责混乱
 
@@ -172,13 +174,16 @@
 
 例如：
 
-```python
-if result is None:
-    return None
-if result.items is None:
-    return []
-if len(result.items) == 0:
-    return []
+```java
+if (result == null) {
+    return null;
+}
+if (result.getItems() == null) {
+    return List.of();
+}
+if (result.getItems().isEmpty()) {
+    return List.of();
+}
 ```
 
 若系统内部已有保证，不需要每个步骤都做空值防御。
@@ -203,11 +208,11 @@ if len(result.items) == 0:
 
 ```java
 // 目前只有一种策略，未来可能扩展
-interface PaymentStrategy {
-	void pay();
+interface ReportExporter {
+	void exportReport();
 }
 
-class DefaultPaymentStrategy implements PaymentStrategy {
+class DefaultReportExporter implements ReportExporter {
     ...
 }
 ```

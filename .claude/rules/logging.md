@@ -44,7 +44,7 @@
 例如：
 
 ```text
-orderId=12345 traceId=abc123 status=PAID costMs=82
+reportId=14 taskId=30 status=SUCCEEDED costMs=82
 ```
 
 ---
@@ -156,7 +156,7 @@ DEBUG 日志默认不应依赖线上长期保留。
 推荐：
 
 ```java
-log.warn("invoke payment failed, orderId={}, retryCount={}, costMs={}", orderId, retryCount, costMs, ex);
+log.warn("模型调用失败 channelCode={}, retryCount={}, costMs={}", channelCode, retryCount, costMs, exception);
 ```
 
 禁止：
@@ -197,7 +197,7 @@ log.error("error", ex);
 推荐：
 
 ```java
-log.error("create order failed, userId={}, skuId={}", userId, skuId, ex);
+log.error("创建诊断报告失败 taskId={}, reportLanguage={}", taskId, reportLanguage, exception);
 ```
 
 ---

@@ -22,8 +22,11 @@
 | 日志、外部调用或异常处理 | logging.md、error-handling.md |
 | 测试实现 | testing.md |
 | 接口文档 / 技术设计文档 | api-doc.md / tech-design-doc.md |
-| 支付通道适配 | channel-integration.md、channel-modeling.md |
-| 其他外部请求/响应建模 | channel-modeling.md |
+| 调用外部接口（大模型、内容平台等）的请求 / 响应建模 | channel-modeling.md |
+| 诊断方案、任务、结果、报告的代码、页面或表 | modules/diagnosis.md |
+| 提示词模板、提示词管理页，或新增、修改发给模型的提示词 | modules/prompt-template.md |
+| 大模型渠道、策略或新增模型调用 | modules/llm.md |
+| 浏览器自动化里需要人工处理的场景、接管框架 | modules/browser-takeover.md |
 
 进入当前阶段时读取 04-code-generation 或 05-refactor；不提前加载全部 Agent。
 开始修改前简要声明适用规则和范围。
@@ -42,7 +45,8 @@
 |---|---|---|---|---|---|
 | 文件路径#方法名 | 逐项写实际目的 | 通过/缺失 | 通过/不适用及原因 | 通过/不适用及原因 | 通过/待修正 |
 
-类职责和边界另检查一次，包括类注释首句是否直接说明“是什么”（[comment-java.md](../rules/comments/comment-java.md) 1.1）。检查范围是完整变更方法，不只新增行。
+类职责和边界另检查一次，包括类注释首句是否直接说明“是什么”（[comment-java.md](../rules/comments/comment-java.md) 1.1）。检查范围是完整变更方法，不只新增行；搬移、拆分到新类的方法同样全量审计。
+每个方法单独一行，不把多个方法或多个类合并成一行；写“单阶段 / 不适用”时写出按 comment-java §3 判定的依据；决策列逐组列出（跳过、成功、失败、降级等），不能只因有一条注释就记通过。
 审计是读取代码后得出的证据，不能只写“按规范检查通过”，不能靠注释行数或编译结果替代。
 小任务可在交付回复中记录；较多方法记录到当前交接或验收文档，不写长期 memory。
 出现缺漏先修正再交付，不把“后续补注释”作为完成。

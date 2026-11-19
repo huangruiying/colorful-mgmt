@@ -2,6 +2,8 @@
 
 本文件记录与用户确认的长期工程要求。修改本项目代码前必须阅读；与通用模板规则冲突时，以本文件及用户最新明确要求为准。临时进度和验证结果写入 `.doc/HANDOFF.md`。
 
+本项目是独立的 Java 17 / Spring Boot 3 服务（MyBatis-Plus、MySQL、Playwright、静态管理页面），POM、目录和运行配置以当前仓库为准。本文件只放跨模块的工程约定；单个模块的设计决策见文末「模块设计决策」。
+
 ## 先判断设计是否必要
 
 - 用户提出方案时，先检查已有实现、上下游调用和数据来源，给出独立判断。重复配置、职责冲突或不必要的复杂度应主动指出，不默认顺着提议增加代码。
@@ -44,23 +46,9 @@ infrastructure/client：外部协议、平台及浏览器适配
 - Lombok 可用于数据模型及日志；枚举构造参数使用 `@RequiredArgsConstructor` 不属于 Spring 依赖注入。
 - 使用 `channel`、`entity`、`response` 等能表达职责的变量名，避免 `c`、`p` 等含糊缩写。
 - 方法名按 [naming.md](naming.md) §3.2 写成“动词 + 业务对象”，类名已经带上下文也不省略业务对象：用 `listTasks`、`getTask`、`listTaskResults`、`createReport`、`savePlan`，不用 `list`、`detail`、`results`、`create`。控制器处理方法与所调用的 Business 方法同名。
-- 动词按语义选：可能查不到用 `find`，必须存在用 `get`，纯校验抛异常用 `validate`，校验后返回确定值用 `confirm`；状态写操作写明结果，如 `updateResultSucceeded`、`updateResultFailed`，不用 `succeed`、`fail`、`save` 这类只有动作的名字。布尔方法用 `is`、`has`、`contains` 开头；名词不作方法名（`taskSnapshot` 改为 `getTaskSnapshot`）。
+- 动词语义按 [naming.md](naming.md) §3.2 的固定动词表；状态写操作写明结果，如 `updateResultSucceeded`、`updateResultFailed`，不用 `succeed`、`fail`、`save` 这类只有动作的名字。布尔方法用 `is`、`has`、`contains` 开头；名词不作方法名（`taskSnapshot` 改为 `getTaskSnapshot`）。
 - 业务对象在项目内可能同名时带上所属对象：报告分析表也带 result，所以单条诊断结果写 `TaskResult`（`listTaskResults`、`getTaskResult`），与已有的 `DiagnosisTaskResultStatus` 一致。
 - 改名按“类内声明 + 通过注入字段发起的调用”定位，再靠编译找出遗漏（包括 Mockito `when(service).x(...)` 写法）；`create`、`read`、`fail` 这类通用名不做全局文本替换。接口路径和页面文案是对外契约，内部改名不随之改。
-
-### 诊断模块术语与命名线
-
-| 业务概念 | 页面与注释用语 | 类名前缀 | 表 |
-|---|---|---|---|
-| 诊断方案 | 诊断方案 | `DiagnosisPlan` | `geo_diagnosis_plan` 及问题、渠道子表 |
-| 一轮执行 | 诊断任务 | `DiagnosisTask` | `geo_diagnosis_task` |
-| 一个问题在一个渠道上的一次调用记录 | 诊断结果（单次诊断） | `DiagnosisTaskResult` | `geo_diagnosis_task_result` |
-| 一次任务的分析报告 | 诊断报告 | `DiagnosisReport` | `geo_diagnosis_report` |
-| 报告中对单条诊断结果的分析 | 回答分析 | `DiagnosisReportResultAnalysis` | `geo_diagnosis_report_result_analysis` |
-
-- 表名（2026-11-18 用户确认）：页面上独立管理的对象（方案、任务、报告）用短名，从属的表带所属对象前缀：方案的问题与渠道、任务的诊断结果、报告的回答分析。报告仍通过 `task_id` 关联所属任务，只是表名不再体现。
-- 同一业务对象的表、实体、DAO、领域服务、Business、Response、Controller、后台任务、枚举及测试类沿同一前缀命名；改名时整组一起改，控制器测试保留 `Mgmt` 前缀（如 `MgmtDiagnosisReportControllerTest`）。
-- “诊断结果”只指单条调用记录，“诊断报告”只指整份报告，两者不互相借用；不再使用“采样”，重复调用称“重复执行次数”。
 
 ## 方法与可读性
 
@@ -95,63 +83,22 @@ infrastructure/client：外部协议、平台及浏览器适配
 - 写请求必须带跨站令牌：页面接口请求统一走 `shared/http.js` 的 `AdminHttp.requestJson`（自动附带 `X-XSRF-TOKEN`，401 跳转登录页），不直接使用 `fetch`；表单提交用 `AdminHttp.csrfToken()` 填 `_csrf`。新页面必须引入 `shared/http.js`、`shared/navigation.js`（含退出入口）与 `shared/browser-takeover.js`（人工接管弹窗）。
 - 所有响应带 `X-Robots-Tag: noindex, nofollow`，并提供禁止抓取的 `robots.txt`；这只约束遵守规则的爬虫，真正的访问控制仍是登录。
 
-## 浏览器人工接管
+## 模块设计决策
 
-- 术语（2026-10-31 用户确认）：「浏览器人工接管」指框架：服务器上的 Playwright 页面需要人时，把实时画面推到管理页，用户在画面上点击、拖动、输入，操作转发回页面，直到调用方给出的完成条件满足。「人工验证」只是其中一个场景，不再用来指整个框架。
-- 框架与业务隔离：框架在 `infrastructure/client/playwright/takeover/`，类名前缀 `BrowserTakeover`，入口 `BrowserTakeoverRegistry.requestTakeover(页面, 标题, 原因, 完成条件)`，接口 `/browser-takeovers`；只认页面、标题、原因、完成条件和超时，不引用平台、业务枚举。场景放在 `takeover/` 下的子包（人工验证为 `takeover/verification/`），由场景决定何时请求接管、怎样算完成；平台客户端只调用场景入口。
-- 何时用接管：代码能自动处理的（弹窗、协议勾选）写在平台适配里；要人做但能用管理页表单转交的（选验证方式、填短信码）用表单；只有必须直接在平台页面上操作的（拖滑块、点选图片）才用接管。不提前做没有真实需求的场景。
-- 人工验证的识别规则集中在 `HumanVerificationRule`，只收录实际遇到并核对过页面特征的验证；不识别验证码内容、不模拟拖动、不代替用户完成验证。
+单个模块的设计决策按模块分文件维护，改到对应模块时读取（读取条件见[代码变更流程](../workflows/code-change-flow.md) §2）。下表的原章节以前写在本文件，2026-11-19 原文移入对应文件，旧文档里“项目约定「…」”的引用按此表查找：
 
-## 诊断方案制题
+| 模块 | 文件 | 原章节 |
+|---|---|---|
+| 诊断方案、任务、结果与报告 | [modules/diagnosis.md](modules/diagnosis.md) | 诊断模块术语与命名线、诊断方案制题、诊断报告分段执行、诊断报告页面与导出网页 |
+| 提示词管理 | [modules/prompt-template.md](modules/prompt-template.md) | 提示词管理 |
+| 大模型渠道与调用 | [modules/llm.md](modules/llm.md) | 已确认的大模型设计 |
+| 浏览器人工接管 | [modules/browser-takeover.md](modules/browser-takeover.md) | 浏览器人工接管 |
 
-- 地域必选（2026-11-16 用户确认）：生成候选时先按「母题语言」生成一套母题，再按每个地域行（地域 + 可空语言）改写；生成母题时把本次地域告诉模型，母题要在这些地域都成立。母题只用于改写和审核对照，不保存。手动添加的题和旧方案的题仍可不分地域。
-- 问题面向哪些地域、用什么语言只看本次输入：项目档案的目标市场、目标语言只在页面上展示作参考，不发给制题模型，也不参与统计。
-
-## 诊断报告分段执行
-
-- 两段（2026-11-19 用户确认）：报告分「判定每条回答」与「生成报告内容」两段，`geo_diagnosis_report.stage` 记录执行到或停在哪一段（`JUDGE` / `CONTENT`），与 `status` 一起表示进度。只在两段之间设断点：判定每条回答都要调用模型、结果逐条落库，重跑只判失败的；第 2 段（维度归一、统计、优化建议、地域策略）只有几次调用，中间结果不另存，失败或中断时整段重做，不在第 2 段内部另加断点。
-- 失败就暂停，不自动重试：判定段全部判完、有失败才暂停，不因连续失败提前停；第 2 段四步都跑完再看结果，有失败先保存本次内容再暂停。暂停后由用户选「重试」（只重做失败的部分）或「忽略失败继续」（按降级口径往下走：失败的回答不计入判定指标，失败的建议、策略显示生成失败）；已完成的报告也可重判失败的回答或重新生成报告内容。只有冻结的判定渠道被删除时报告失败（重跑不换渠道），早期失败的报告不能重跑。
-- 分工：执行器 `DiagnosisReportWorker` 只负责按段执行、判断结果；段与状态的每次变化、重跑与忽略的前置条件都在 `GeoDiagnosisReportService`，写库带当前状态条件；Controller 和执行器不另写状态规则。重新排队锁所属任务行，与生成新报告串行，同一任务同时最多一份报告在生成（暂停的不算）。
-- 第 2 段子步骤进度（2026-11-19 用户确认）：只拆显示、不拆重试。执行器每步开始、结束时把四个子步骤（合并同义维度、统计、写优化建议、写地域策略）的状态与说明写入 `content_progress`，写地域策略逐个地域报进度；各步结果的说明集中在 `DiagnosisReportContentProgress`。进度写库失败只记警告、不中断生成，重新排队时清空；不要据此做重试或状态判断。
-- 「补全报告」已删除（2026-11-19 用户确认）：早期报告缺内容时用「重新生成报告内容」整段重做，不再维护缺失部分清单。
-
-## 诊断报告页面与导出网页
-
-- 文件分工（2026-11-04 用户确认）：`static/admin/diagnosis-report-view.js`（`DiagnosisReportView`）渲染各页签及证据、回答片段，页面与导出网页共用；`diagnosis-report-export.js`（`DiagnosisReportExport`）组装并下载导出网页；`diagnosis-reports.js` 是页面本身（列表、生成、详情、两段进度、重试与重跑、弹窗）。页签的标识、标题、渲染函数与缺失提示只在 `DiagnosisReportView.tabs` 中定义；渲染函数不读全局状态，模型筛选与查看入口经第一个参数 `context` 传入。样式在导出时从当前页面内联。改报告页面时按下面两条写，导出自动跟上，不另改导出代码：
-  - 页签内容只用已读取的报告数据同步渲染。点开后才另调接口取得的内容不会进入导出网页，需要时在 `DiagnosisReportExport.downloadReport` 中单独读取（如回答原文）。
-  - 「看回答」「看证据」这类查看入口一律经 `context.entries` 生成（或用已有的 `quoteLine`、`answerLine`、`adviceItem`）：页面上是按钮，导出时是打开随网页导出的弹窗的链接，对应回答与证据一并导出。不在渲染函数里直接创建按钮并绑定点击，导出时按钮会被去掉。
-- 筛选、排序、展开收起等其他交互不随导出带过去；需要在导出网页中可用时，在导出模块的 `exportPageScript` 中另加。
-- 页签内的子页签（如 ⑦ 的地域，2026-11-15）用带 `data-subtab-group`、`data-subtab`、`data-subtab-panel` 的链接，渲染函数不绑定事件：页面由 `diagnosis-reports.js` 委托点击后调用 `DiagnosisReportView.selectSubtab`，导出网页由 `exportPageScript` 切换。
-- 报告语言（2026-11-16 用户确认）：生成报告时选择，默认中文，存 `geo_diagnosis_report.report_language`。由模型写出的解析内容按报告语言书写：逐条判定的观点概括与维度名、维度归一、优化建议、⑦ 地域策略；新增需要模型书写的报告内容也把报告语言传进提示词。问题、回答、引用片段、来源和品牌名保持原文，不翻译。代码拼出的问题标题、指标名与页面固定文字保持中文，不做页面多语言。
-
-## 提示词管理
-
-- 提示词放在库表 `geo_prompt_template`，在「基础配置 → 提示词管理」维护（2026-11-19 用户确认）。可维护的提示词由枚举 `PromptTemplateKey` 声明：枚举名是库里的 key，带页面显示的描述和可用变量（英文变量名、中文说明、是否必填）。库是唯一来源，代码里不留默认文字，缺了就明确报错，不回退。
-- 现有七个，枚举声明顺序即页面下拉顺序，按业务流程排：诊断方案制题两个（生成母题、按地域改写）、诊断报告四个（逐条判定、合并同义维度、优化建议、地域策略）、内容优化一个（正文优化）。
-- 模板里写 `{{变量名}}`，代码按名字算好取值后用 `PromptTemplateRenderer.render` 一次扫描填充，不连续调用 `replace`，免得填进去的回答原文被再次替换；取不到值直接报错。保存时拒绝未声明的变量（多半是拼错）和缺少的必填变量。
-- 保存总是新增一版、不覆盖，旧版本可载入后再保存回滚。制题、内容优化每次调用读当前版本；判定提示词由报告冻结版本（`prompt_version` 记作 v + 版本号），续跑沿用，手动重判换成最新版；第 2 段每次开始时读一次当前版本，同一次执行不重复查库。
-- 分工：诊断报告的 `*Prompt` 类只负责“模板 + 数据 → 提示词”和输出解析，不访问数据库；模板由执行器取出后传入。制题、内容优化没有单独的提示词类，由 `QuestionGenerateService`、`ContentOptimizationService` 在调用模型前取当前版本、在本类填变量；缺提示词时抛 `NoSuchElementException`，经全局处理返回 404，页面显示“提示词未配置：…”，不调用模型。模板里写的模型输出格式与解析绑定，改模板时要保持一致：改坏了制题直接报错，报告会在那一步暂停。
-- 新增提示词：在 `PromptTemplateKey` 加枚举值并声明变量 → 在 `001_init.sql` 与迁移脚本写入初始模板（初始模板应由原代码用占位符拼出，并核对填入数据后与原提示词一致）→ 对应的类改为取模板填变量。测试会检查每个枚举都有初始模板且变量合规。
-
-## 已确认的大模型设计
-
-- 配置唯一来源为数据库 `geo_llm_channel`，不恢复 YAML 模型配置、自动导入或默认回退。
-- 默认筛选已启用渠道，按 `score` 降序、ID 升序选择；指定渠道或模型时增加对应约束。无匹配或调用失败明确返回，不自动切换模型。
-- 渠道直接保存 strategy_bean_name，用 Spring 注入的 Map<String, LLMStrategy> 按 Bean 名获取实例。不再维护额外策略编码、自建注册表或 strategyType/strategyCode/strategyName 包装方法；缺失 Bean 保存与调用时明确拒绝，不反射、不降级。
-- 页面使用数据库渠道名称和模型名称，策略选项展示“策略中文名称 · 协议名称”（2026-10-29 用户确认）：中文名称由各策略类实现 `displayName()` 声明，新增策略漏写编译不通过；不另建 Bean 名到中文名的对照表或枚举，保存和路由仍用 Bean 名。厂商策略通过 `apiKeyConsoleUrl()` 声明 API Key 获取页，经 /llm-channels/strategies 返回给配置页展示；通用策略返回 null，前端不另维护地址表。协议由协议父类声明，不存入数据库或重复放入策略目录；枚举值、字段和业务方法须有简洁注释。重命名 Bean 时同步迁移数据库配置。
-- Chat Completions、Responses 抽象父类复用协议交互与引用解析，子策略处理厂商参数。protocol_type 不独立持久化，响应从实例推导；provider_code 只作供应商资料。页面选项来自 /llm-channels/strategies 的实际 Bean Map，不开放未实现策略。
-- 路由一次查询选取 GeoLlmChannelEntity 后直接交给策略，不建立同字段的连接配置副本或重复传递密钥。未知 Bean 和远程空密钥在调用前拒绝；实体的密钥不得参与日志、toString 或接口响应。只有协议调用和异常边界承担实际职责的层保留，纯转发和已停用 SDK 代码及时删除。
-- LLMProtocolType 只表示 OPENAI_CHAT_COMPLETIONS、OPENAI_RESPONSES 交互格式；本地模拟策略已删除（2026-10-29），测试用 Mockito 策略替身或 `.test` 脚本的本地 HTTP 模型替身。引用始终按响应的结构化字段解析，不根据搜索标志过滤，也不从正文 URL 或搜索召回来源猜测。搜索参数按供应商处理，不把普通兼容供应商自动标为支持联网。
-- 引用只来自接口结构化数据，不把正文链接当成实际引用，不虚构引用。
-- 不返回 url_citation 的厂商由子策略重写 `collectStrategyCitations`，把接口结构化返回的来源网址补为引用：DeepSeek 取 `web_search_call` 的 `open_page`（去掉 `ws_call_id` 标识），千问、智谱取 `web_search_call.action.sources` 中 `type=url` 的网址（共用 `LLMWebSearchResultParser.collectWebSearchSources`）；文心（千帆智能搜索 Chat）取响应顶层 `references` 中 `type=web` 的网址与标题，正文 `^[n]^` 角标不解析。Chat 与 Responses 父类各提供同名默认空实现的补充入口。标题、摘要、位置留空且不抓取补全；检索词不作为引用；文本注解已有同一网址时保留注解资料。标准 url_citation（豆包、OpenAI）留在父类统一解析，不下沉到子策略。
-- `LLMQueryRequest` 仅含 `prompt`、`channelCode`、`modelName`、`enableWebSearch`，每次独立调用，无角色枚举、消息列表或历史上下文。重复执行通过多次独立调用完成。
-- 是否联网由调用方声明，不按渠道或提示词识别（2026-11-16 用户确认）：`enableWebSearch` 默认 false，只有诊断执行（`DiagnosisTaskWorker`）和测试接口用 `LLMQueryRequest.withWebSearch` 打开；制题、改写、报告判定、维度归一、优化建议、地域策略、内容优化等内部任务一律不联网，新增模型调用不写就不搜。Responses 父类判断开关，打开才调用子类的 `addWebSearchParams` 挂载厂商搜索参数；子类只把“要联网”翻译成自己的参数，不判断用途。千帆智能搜索（接口本身即搜索）、`gpt-5-search-api` 等搜索专用模型不受开关控制，内部任务不要选用。
-- 密钥仅供服务端使用，响应只返回 `keyConfigured`；编辑空密钥保留原值，输入新值才替换。
+新增的模块级决策写入对应模块文件；新模块的决策多到需要单独维护时再新建文件，并在本表登记。
 
 ## 修改后的检查
 
 - 检查完整生产者和消费者，包括源码、测试、前端、SQL、资源版本及有效文档引用；不只修改用户指出的一行。
 - 重命名表或类时同步关联引用，已有表迁移保留数据，避免创建一个同名空表替代原数据。
-- 保留用户未提交改动，不自动提交、重置、清理或批量格式化。
-- 测试覆盖实际业务边界，不为重复字段赋值写机械测试；按改动运行相关验证，区分代码实现、测试通过和真实平台联调。
-- 长期规则写入本文件，当前完成情况、风险和下一步写入 `.doc/HANDOFF.md`；明确服务是否重启，不把源码修改当成运行实例已更新。
+- 测试覆盖实际业务边界，不为重复字段赋值写机械测试；按改动运行相关验证，区分代码实现、测试通过和真实平台联调；未证实的结果标为待验证，不把草稿成功写成公开发布成功。
+- 跨模块的长期规则写入本文件，模块决策写入对应模块文件，当前完成情况、风险和下一步写入 `.doc/HANDOFF.md`；明确服务是否重启，不把源码修改当成运行实例已更新。

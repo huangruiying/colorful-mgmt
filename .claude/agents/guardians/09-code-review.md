@@ -8,7 +8,7 @@
 ## 加载与检查
 
 按 [代码变更流程](../../workflows/code-change-flow.md) 的注释、架构、验证与交付阶段复核。
-实际工程边界以 [项目约定](../../rules/project-conventions.md) 为准。
+实际工程边界以 [项目约定](../../rules/project-conventions.md) 及涉及模块的 `rules/modules/` 文件为准。
 Java 变更必须读取 [Java 注释规则](../../rules/comments/comment-java.md)，按完整变更方法检查，不能只按行数或分支数量判断。
 设计变更读取 [架构检查](../../rules/architecture.md)；其余规则按公共流程触发条件加载。
 

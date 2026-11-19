@@ -8,15 +8,14 @@
 
 - 每次先读本索引。
 - 只在任务命中对应主题时继续读取专项记忆文件。
-- 强执行规范放 `rules/`，memory 只记录背景、决策、协作偏好。
-- 架构与代码修改必读 [项目约定](../rules/project-conventions.md)：用户要求实用分层、主动评估设计必要性、完整调用链自检，不接受只为形式增加模型和转发层。规则正文以该文件为准，不在 memory 重复维护。
+- 强执行规范放 `rules/`，memory 只记录背景、决策、协作偏好，不重复维护规则正文。
 
 ## 专项记忆
 
-| 主题              | 何时读取                                              | 文件                           |
-|-----------------|---------------------------------------------------|------------------------------|
-| `.claude` 上下文治理 | 调整 Agent / Workflow / rules / memory，或讨论 token 消耗 | `context-governance.md`      |
-| 文档规范边界          | 接口文档、技术详细设计、技术方案、文档模板相关任务                         | `doc-rule-boundary.md`       |
-| 注释生成偏好          | Java / Python 注释规则、自动注释、示例压缩相关任务                  | `comment-rule-preference.md` |
-| 运行时环境           | 接口回归、联调测试、数据库 / Redis 环境定位                        | `runtime-env.md`             |
-| 代码库知识图谱         | 架构/模块/调用链/文件职责/新功能落点等结构性问题                        | `knowledge-graph.md`         |
+| 主题 | 何时读取 | 文件 |
+|---|---|---|
+| `.claude` 上下文治理 | 调整 Agent / Workflow / rules / memory，或讨论 token 消耗 | `context-governance.md` |
+| 文档与方案协作边界 | 开发草案、方案讨论、接口文档、技术详细设计，或用户说“记住” | `doc-rule-boundary.md` |
+| 注释生成偏好 | Java / Python 注释规则、自动补注释、示例压缩 | `comment-rule-preference.md` |
+| 运行时环境 | 编译、跑测试、接口回归、查本机数据库、服务器部署 | `runtime-env.md` |
+| 代码库知识图谱 | 架构 / 模块 / 调用链 / 文件职责 / 新功能落点等结构性问题 | `knowledge-graph.md` |
