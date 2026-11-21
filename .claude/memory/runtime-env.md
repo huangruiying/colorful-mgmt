@@ -1,20 +1,20 @@
-# 运行时环境记忆
+# colorful-mgmt 运行线索
 
-用于编译、跑测试、接口回归和查库时快速定位本项目的运行环境。密码、密钥、Cookie 不写入 memory，需要时从环境变量或用户处获取。
+以下为 2026-11-22 从仓库与旧环境记录整理的位置线索，本次没有启动服务、连接数据库或服务器。使用前核对路径、版本和目标，不能据此宣称环境可用。
 
-## 本机
+## 仓库可核对的位置
 
-- 服务：一般由 IDEA 启动，端口 8010，`BASE_URL=http://127.0.0.1:8010`；除登录页外的接口都要求登录。
-- MySQL：docker 容器 `colorful-geo-mysql`，库 `colorful_geo`。用容器内的环境变量登录，不在命令里写密码：
-  `docker exec -i colorful-geo-mysql sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot --default-character-set=utf8mb4 colorful_geo'`
-- 往临时库导入 `001_init.sql` 时，先去掉开头的 `CREATE DATABASE` 和 `USE colorful_geo;` 两行。
-- Maven：用 IDEA 自带的 `/Applications/IntelliJ IDEA.app/Contents/plugins/maven/lib/maven3/bin/mvn`，配合 `JAVA_HOME=~/Library/Java/JavaVirtualMachines/ms-17.0.17/Contents/Home`，离线执行（`-o`）。`~/Documents/maven/` 下的 Maven 会被 macOS 隐私保护拦截（Operation not permitted），沙箱外执行也一样，不要用。
-- 只跑部分测试：`-Dtest='A,B' -Dsurefire.failIfNoSpecifiedTests=false`。前端测试：`node --test src/test/js/*.cjs`。
-- 无头页面检查：playwright-core 在 `/opt/homebrew/lib/node_modules/agent-browser/node_modules/playwright-core`，浏览器用本机 Chrome。
-- 截至 2026-11-19 的既有失败：Java `LLMStrategyRouterTest.shouldRejectDisabledExactTaskChannel`；前端 11 项（browser-login 9、http 2）。判断是否新引入失败时先对照。
+- Java/Maven 约束查 `pom.xml`；服务与数据源查 `src/main/resources/application.yml`；IDE 配置在 `.idea/`，可能未入版本控制。
+- 本机服务端口配置为 8010，地址通常为 `http://127.0.0.1:8010`，是否启动查进程与端口。
+- 新库结构 `src/main/resources/db/mysql/001_init.sql`；迁移与服务器执行步骤在 `.doc/<分支>/`。
+- 部署查 `deploy/docker-compose.yaml`、`deploy/upload-code-to-server.sh` 和 `deploy/rebuild.sh`。仓库名为 colorful-mgmt，但当前 REMOTE_DIR 仍为 `/root/colorful-geo-mgmt`，Compose 名称和库名仍含 geo。
+- 前端单测命令：`node --test src/test/js/*.cjs`；Java 定向测试可用 `-Dtest='A,B' -Dsurefire.failIfNoSpecifiedTests=false`，前提是核对实际 Maven/JDK。
 
-## 服务器
+## 历史本机位置，未现场验证
 
-- 部署目录 `/root/colorful-geo-mgmt/deploy`（见 `deploy/upload-code-to-server.sh` 的 `REMOTE_DIR`），docker compose 运行；看日志：`docker compose -f docker-compose.yaml --env-file .env logs --tail=100 app`。
-- 发新代码：已上传时在部署目录执行 `sh rebuild.sh`；未上传时在本地执行 `sh deploy/upload-code-to-server.sh -r`。
-- 改库命令由 `.doc/<分支>/*-服务器执行.md` 给出，按其中顺序先改库再发代码。
+- MySQL 曾使用容器 `colorful-geo-mysql`、库 `colorful_geo`，先查当前容器，不把 Compose 服务名推断为固定容器名；连接时从安全配置读取凭据，避免明文命令或输出。
+- Maven 曾使用 `/Applications/IntelliJ IDEA.app/Contents/plugins/maven/lib/maven3/bin/mvn`，JDK 曾为 `~/Library/Java/JavaVirtualMachines/ms-17.0.17/Contents/Home`，可按实际依赖缓存决定是否离线。
+- `~/Documents/maven/` 曾遇 macOS 权限错误，这不是永久不可用结论；需要时现场验证。
+- Playwright 测试曾用本机 Chrome 与 `/opt/homebrew/lib/node_modules/agent-browser/node_modules/playwright-core`，先查是否存在，不自动安装或更换版本。
+
+旧测试失败数量不作为豁免清单。知识图谱仅在结构性问题时检查是否存在；存在也只作路径导航，关键关系回查当前源码，不要求每次对话扫描图谱或安装技能。
