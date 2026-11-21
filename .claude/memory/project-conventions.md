@@ -1,6 +1,6 @@
 # colorful-mgmt 架构与代码约定
 
-本文件记录与用户确认的长期工程要求。修改本项目代码前必须阅读；与通用模板规则冲突时，以本文件及用户最新明确要求为准。临时进度和验证结果写入 `.doc/HANDOFF.md`。
+本文件记录当前 colorful-mgmt 项目与用户确认的长期架构选择和实现约定，属于项目记忆。修改本项目代码前必须阅读；与通用模板规则冲突时，以本文件及用户最新明确要求为准。临时进度和验证结果写入 `.doc/HANDOFF.md`。
 
 本项目是独立的 Java 17 / Spring Boot 3 服务（MyBatis-Plus、MySQL、Playwright、静态管理页面），POM、目录和运行配置以当前仓库为准。本文件只放跨模块的工程约定；单个模块的设计决策见文末「模块设计决策」。
 
@@ -36,7 +36,7 @@ infrastructure/client：外部协议、平台及浏览器适配
 - 合并或修改职责后同步类名、方法名和注释，不保留已经失真的 `LoginService` 等名称。
 - Spring 依赖始终使用 `jakarta.annotation.Resource` 字段注入；不使用构造器注入或 `@RequiredArgsConstructor` 注入依赖。注入后的初始化使用 `@PostConstruct`。
 - Lombok 可用于数据模型及日志；枚举构造参数使用 `@RequiredArgsConstructor` 不属于 Spring 依赖注入。
-- 控制器处理方法与所调用的 Business 方法同名；动词与变量语义见 [命名规范](naming.md)。
+- 控制器处理方法与所调用的 Business 方法同名；动词与变量语义见 [命名规范](../rules/naming.md)。
 - 业务对象在项目内可能同名时带上所属对象：报告分析表也带 result，所以单条诊断结果写 `TaskResult`（`listTaskResults`、`getTaskResult`），与已有的 `DiagnosisTaskResultStatus` 一致。
 
 ## 方法与可读性
@@ -44,7 +44,7 @@ infrastructure/client：外部协议、平台及浏览器适配
 - 已有 MyBatis-Plus 能力直接使用，例如 `getById`；不再增加仅查询后返回的包装方法。记录缺失判断放在需要该业务语义的位置。
 - 避免重复查询和实体二次复制。保存后为取得数据库生成的 ID、时间而回读，有明确用途，可保留。
 - 状态更新只修改目标字段，避免把旧实体全量回写覆盖其他配置。
-- 主流程、复用与抽象判断见 [开发规范](engineering.md)，日志和失败边界见 [可靠性规范](reliability.md)，职责与状态说明见 [Java 注释](comments/comment-java.md)。
+- 主流程、复用与抽象判断见 [开发规范](../rules/engineering.md)，日志和失败边界见 [可靠性规范](../rules/reliability.md)，职责与状态说明见 [Java 注释](../rules/comments/comment-java.md)。
 - 不打印问题原文、回答原文或凭据；模型密钥的具体隔离契约见大模型模块决策。
 
 ## 列表与分页
@@ -56,7 +56,7 @@ infrastructure/client：外部协议、平台及浏览器适配
 
 ## 接口异常响应
 
-- 所有接口出错统一返回 Spring `ProblemDetail`，前端读取 `detail` 字段展示原因，不再返回 `{"message": ...}` 等自定义结构。
+- 不引入 BizException 或新的业务错误码响应信封。所有接口出错统一返回 Spring `ProblemDetail`，前端读取 `detail` 字段展示原因，不再返回 `{"message": ...}` 等自定义结构。
 - `IllegalArgumentException → 400`、`NoSuchElementException → 404` 由 `presentation/controller/GlobalExceptionHandler` 统一处理并记 warn 日志，各 Controller 不再重复编写。
 - 含模块语义的映射（如发布记录 `IllegalStateException → 409`、诊断模块存储失败 500、`LLMClientException` 的提示文案、渠道编码重复 409）留在对应 Controller，Controller 内处理优先于全局处理。
 - Controller 单测使用 `standaloneSetup` 时需 `.setControllerAdvice(new GlobalExceptionHandler())`，否则 400/404 断言不生效。
@@ -79,9 +79,9 @@ infrastructure/client：外部协议、平台及浏览器适配
 | 大模型渠道与调用 | [modules/llm.md](modules/llm.md) | 已确认的大模型设计 |
 | 浏览器人工接管 | [modules/browser-takeover.md](modules/browser-takeover.md) | 浏览器人工接管 |
 
-新增的模块级决策写入对应模块文件；新模块的决策多到需要单独维护时再新建文件，并在本表登记。
+新增模块决策写入 memory 中对应模块文件；新建主题时同步项目记忆索引，本表仅保留旧章节查找关系。
 
 ## 接口输出与决策边界
 
 - 成功响应直接返回业务对象或列表，不套统一业务码信封；接口 Response 位于 application 模型，领域服务不依赖接口 Response。
-- 本文件记录跨模块长期约定，模块决策放对应文件。新增规则优先合并到已有归属，不在工作流、记忆与入口复制正文。
+- 本文件记录跨模块项目约定，模块决策放 memory/modules。通用工程要求放 rules；同一要求只维护一处，不在入口、流程与记忆重复抄写。

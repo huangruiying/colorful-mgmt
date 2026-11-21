@@ -102,6 +102,45 @@ x();
             rule.write_text('---\npaths:\n  - "src/**/*.java"\n---\n# 专题\n')
             self.assertEqual(([], []), checker.inspect(root))
 
+    def test_project_memory_needs_no_rule_scope(self):
+        """
+        功能:
+            验证项目记忆不受通用规则作用域检查影响。
+        作用:
+            防止把迁入记忆的项目约定误判成缺少 paths 的规则。
+        参数:
+            self:    当前测试用例
+        返回:
+            无；不符合约定时由断言报告失败。
+        """
+        # 1. 构造无 paths 的项目记忆并接到主题读取入口
+        with repository() as root:
+            (root / '.claude/memory').mkdir()
+            (root / '.claude/memory/project-conventions.md').write_text('# 项目约定\n')
+            (root / '.claude/CLAUDE.md').write_text('[记忆](memory/project-conventions.md)\n')
+            # 2. 记忆文件不应要求 rules 专用元数据
+            self.assertEqual(([], []), checker.inspect(root))
+
+    def test_rules_have_no_project_conventions_exemption(self):
+        """
+        功能:
+            验证 project-conventions 名称不再豁免规则作用域。
+        作用:
+            防止旧分类例外使误放的项目文件无条件全局加载。
+        参数:
+            self:    当前测试用例
+        返回:
+            无；未识别无作用域规则时由断言报告失败。
+        """
+        # 1. 模拟将旧项目约定文件重新放回 rules
+        with repository() as root:
+            (root / '.claude/rules').mkdir()
+            (root / '.claude/rules/project-conventions.md').write_text('# 旧位置\n')
+            (root / '.claude/CLAUDE.md').write_text('[规则](rules/project-conventions.md)\n')
+            # 2. 文件名不能代替缺失的作用域约束
+            errors, _ = checker.inspect(root)
+            self.assertTrue(any('paths' in error for error in errors))
+
     def test_stop_continues_only_once(self):
         errors = ['入口失效']
         first = checker.hook_result({'hook_event_name': 'Stop'}, errors, [])

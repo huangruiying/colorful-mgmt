@@ -6,7 +6,7 @@ paths:
 
 # 命名规范
 
-表名、实体、DAO、Service、接口模型与注入方式见 [项目约定「命名与依赖注入」](project-conventions.md)。本文件只定义动词和语义一致性。
+表名、实体、DAO、Service、接口模型与注入方式见 [项目约定「命名与依赖注入」](../memory/project-conventions.md)。本文件只定义可复用的动词和语义一致性，示例只演示命名形式，不定义业务接口。
 
 ## 通用语义
 

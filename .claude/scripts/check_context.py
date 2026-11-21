@@ -86,18 +86,30 @@ def check_links(root, texts):
 
 
 def check_rule_scopes(root, texts):
-    """校验本仓库采用的 paths 列表格式，避免损坏的 YAML 退化为全局加载。
-
-    仅支持维护文档约定的带引号字符串列表，不声称是通用 YAML 解析器。
+    """
+    功能:
+        校验通用规则的 paths 列表格式。
+    作用:
+        避免专题意外全局加载；项目记忆不使用 rules 元数据。
+        只支持约定的带引号字符串列表，不作为通用 YAML 解析器。
+    参数:
+        root:     当前仓库根目录
+        texts:    已读取的文件路径与正文映射
+    返回:
+        空列表:   所有通用规则具有有效作用域，或只读取了记忆文件
+        非空列表: 列出缺少列表或越出仓库的规则，交给调用方处理
     """
     errors = []
+    # 1. 只检查通用规则，记忆通过主题路由读取而不要求 paths
     for path, text in texts.items():
-        if not path.is_relative_to(root / '.claude/rules') or path.name == 'project-conventions.md':
+        if not path.is_relative_to(root / '.claude/rules'):
             continue
+        # 2. 验证限定的列表格式，缺失时作为配置错误报告
         header = re.match(r'\A---\npaths:\n((?:  - "[^"\n]+"\n)+)---\n', text)
         if header is None:
             errors.append(f'{path.relative_to(root)} 缺少有效的 paths 列表')
             continue
+        # 3. 拒绝绝对或父级路径，防止作用域越出当前仓库
         for line in header.group(1).splitlines():
             pattern = json.loads(line[4:])
             if not pattern or pattern.startswith('/') or '..' in pattern.split('/'):
