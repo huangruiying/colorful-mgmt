@@ -28,6 +28,7 @@
 |---|---|
 | 功能、修复、重构、规则整理 | [公共交付流程](workflows/code-change-flow.md) |
 | 新增或修改代码、分层与职责 | [开发规范](rules/engineering.md)、[命名](rules/naming.md) |
+| 新增/移动模型或修改能力入出参 | [通用模型归属规范](rules/engineering.md#模型归属) |
 | Java 代码或注释 | [Java 注释](rules/comments/comment-java.md) |
 | Python 脚本或注释 | [Python 注释](rules/comments/comment-python.md) |
 | 日志、异常、线程、事务、外部调用 | [可靠性规范](rules/reliability.md) |

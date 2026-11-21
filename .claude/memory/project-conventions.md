@@ -6,22 +6,29 @@
 
 ## 分层与数据流
 
-本项目采用现有目录分层：
+以下记录本项目实际采用的分层职责；模型目录与跨层调用统一遵守 [通用模型归属规范](../rules/engineering.md#模型归属)。当前实现未完成全面整改，不能把规范生效当成代码已迁移。
 
 ```text
-presentation/controller：接口接收、响应及 HTTP 错误映射
+presentation/controller：HTTP 接收、响应与错误映射
 application/*Business：应用编排、分页输入和接口模型转换
-domain/service：业务规则、校验及现有持久化服务
-infrastructure/repository：DAO 与数据库实体
+domain/service：业务规则、领域服务与业务编排
+infrastructure/repository：持久化访问能力
 infrastructure/client：外部协议、平台及浏览器适配
 ```
 
-- 简单配置和基础档案 CRUD，Service 直接使用数据库实体，不额外建立只有同名字段的领域模型。
-- 数据流采用 `Request → Entity → Response`：应用层接收请求并构造实体，Service 校验和保存实体，应用层构造响应。
-- 只有存在独立领域行为、不变量或生命周期时，才引入领域模型；不要提前为未来可能的需求建立抽象。
+## 模型归属与跨层调用
+
+本项目采用 [通用模型归属规范](../rules/engineering.md#模型归属)，不在此维护第二份目录表或边界规则。
+
+- 2026-11-22 用户确认严格执行，旧的简单 CRUD 数据库实体直通、Request→Entity→Response 直接穿过 Service 的约定已被替代。
+- 当前仅完成规范调整，现存模型位置、能力签名及 ORM 使用尚未全面审计或迁移；既有代码不能据此视为符合。
+- 本项目目前没有获准绕过通用模型归属要求的例外。模块特有的落实事项记在对应模块文件，实际迁移按任务授权执行。
+
+## 转换与隔离
+
 - 输入限制、密钥隔离、协议适配有实际价值，不能在简化时删掉。
 - 不使用 `BeanUtils.copyProperties` 等按属性名隐式复制；字段显式赋值，不为转换新增无必要的框架或中间对象。
-- 不引入 MapStruct 等映射框架（2026-10-17 用户确认）：同名自动映射会让实体上的 `apiKey` 等敏感字段在 Response 加同名字段后无声输出；现有转换多含计算字段（如 `keyConfigured`、`protocolType`），框架省不了多少代码。转换方法留在各模块 Business / Service 内，不放 infrastructure。
+- 不引入 MapStruct 等映射框架（2026-10-17 用户确认）：同名自动映射可能让敏感字段因响应增加同名属性而输出。转换边界与职责按通用模型规范执行。
 
 ## 命名与依赖注入
 
@@ -41,8 +48,8 @@ infrastructure/client：外部协议、平台及浏览器适配
 
 ## 方法与可读性
 
-- 已有 MyBatis-Plus 能力直接使用，例如 `getById`；不再增加仅查询后返回的包装方法。记录缺失判断放在需要该业务语义的位置。
-- 避免重复查询和实体二次复制。保存后为取得数据库生成的 ID、时间而回读，有明确用途，可保留。
+- 同一基础设施边界内复用已有 MyBatis-Plus 能力，例如 `getById`；不新增无职责的转发方法。为隔离数据库实体与领域模型而做的查询结果转换属于必要边界，不能据此删除。记录缺失判断由需要该业务语义的位置负责。
+- 避免重复查询和同一模型的无意义二次复制；不同层契约的必要映射必须保留。保存后为取得数据库生成的 ID、时间而回读，有明确用途，可保留。
 - 状态更新只修改目标字段，避免把旧实体全量回写覆盖其他配置。
 - 主流程、复用与抽象判断见 [开发规范](../rules/engineering.md)，日志和失败边界见 [可靠性规范](../rules/reliability.md)，职责与状态说明见 [Java 注释](../rules/comments/comment-java.md)。
 - 不打印问题原文、回答原文或凭据；模型密钥的具体隔离契约见大模型模块决策。
@@ -51,7 +58,7 @@ infrastructure/client：外部协议、平台及浏览器适配
 
 - 所有分页列表接口统一返回 `infrastructure/common/model/PageResponse<T>`（`items`、`total`、`page`、`size`），不再为每个模块新建 `XxxPage`。
 - 分页参数统一用 `infrastructure/common/model/PageQuery`：Business 用接口入参 `new PageQuery(page, size[, keyword])` 构造，构造时校验页码从 0 开始、`size` 为 1～100、关键词去空白且最多 200 字，空白视为未填写；不再各自写校验。Service 接收 `PageQuery`，用 `.last(pageQuery.limitClause())` 或 `offset()` 分页，用 `pageQuery.toResponse(items, total)` 组装结果；列表和总数使用同一筛选条件。
-- 列表行只给列表用时建行类，命名 `XxxPageItem`（如 `ContentOptimizationRecordPageItem`）；与创建、详情共用的 Response 或领域对象直接作为 `T`，不为列表再复制一份。
+- 列表行只给列表用时建行类，命名 `XxxPageItem`（如 `ContentOptimizationRecordPageItem`）；模型所属层按通用规范确定；与创建、详情共用同层同职责模型时可复用，不为列表再复制一份。
 - 列表方法注释直白写“XX列表（分页）查询，可按 X 筛选”；不用“摘要”指代列表行，不在不负责的层写“避免加载正文”等说明。
 
 ## 接口异常响应
@@ -83,5 +90,5 @@ infrastructure/client：外部协议、平台及浏览器适配
 
 ## 接口输出与决策边界
 
-- 成功响应直接返回业务对象或列表，不套统一业务码信封；接口 Response 位于 application 模型，领域服务不依赖接口 Response。
+- 成功响应直接返回业务对象或列表，不套统一业务码信封；接口模型归属与依赖方向引用通用模型规范。
 - 本文件记录跨模块项目约定，模块决策放 memory/modules。通用工程要求放 rules；同一要求只维护一处，不在入口、流程与记忆重复抄写。
