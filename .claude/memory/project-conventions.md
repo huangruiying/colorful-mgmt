@@ -10,11 +10,16 @@
 
 ```text
 presentation/controller：HTTP 接收、响应与错误映射
-application/*Business：应用编排、分页输入和接口模型转换
-domain/service：业务规则、领域服务与业务编排
-infrastructure/repository：持久化访问能力
+application/*Business：组织完整用例、决定跨 Service 的执行顺序、分页输入和接口模型转换
+domain/service：处理各自领域能力的业务规则，通过基础设施持久化能力访问数据库
+infrastructure/repository：封装 DAO、ORM 与存储映射，提供持久化能力
 infrastructure/client：外部协议、平台及浏览器适配
 ```
+
+- 2026-11-22 用户确认：Business 负责完整用例与跨 Service 协作；领域 Service 负责自身业务规则，不接管应用用例的跨 Service 编排。
+- 领域 Service 不直接调用 DAO 或继承 ORM 持久化基类；DAO 调用和数据库实体的内部存储映射收在基础设施持久化能力内。领域与基础设施契约的转换仍按通用模型归属规范执行，不要求基础设施引用领域模型。
+- 2026-11-22 用户确认采用 [通用事务与外部调用规范](../rules/engineering.md#事务与外部调用)，事务归属、HTTP 拆分及恢复边界只在该处维护。
+- 上述职责是确认后的目标约束，既有代码是否符合须按实际改动范围检查；本次不迁移业务实现，也不代表可靠任务或 outbox 已实现。
 
 ## 模型归属与跨层调用
 
