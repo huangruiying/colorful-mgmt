@@ -2,6 +2,14 @@
 
 > 已讨论、暂不实施的想法记录在 [TODO.md](TODO.md)，接手时一并查看。
 
+## 当前交接：优化建议全被丢弃时记失败（2026-11-21）
+
+- 用户决定：优化建议与地域策略统一，模型输出校验后没有一条有效条目时记失败（第十步遗留待定项已关闭）。规则写入 `rules/modules/diagnosis.md`「诊断报告分段执行」。
+- 代码：`AdvicePrompt.parseAdvice` 在发现与建议都为空时抛 `IllegalArgumentException`，`TacticGenerator.generateAdvice` 既有 catch 记为 FAILED；只有一类为空仍成功，页面显示“暂无”。页面、执行器、Service 不改。
+- 验证：全量 557 项，仅既有 `shouldRejectDisabledExactTaskChannel` 失败；新增 3 项测试，`DiagnosisReportWorkerTest` 三处空建议替身改为带一条有效发现。审计见[验收记录第十二步](20261115_area_diagnosis/诊断问题带地域-验收.md)。
+- 运行实例：8010 未启动，未真实跑报告。Git 未提交。
+- 仍待定：`shouldRejectDisabledExactTaskChannel`（精确渠道入口是否检查停用）；`ContentOptimizationServiceTest` 未随 `ContentOptimizeService` 改名搬包。
+
 ## 当前交接：report 目录按两段分包（2026-11-19）
 
 - 用户确认：`domain/service/diagnosis/report/` 改为按段分包，包名对应 `DiagnosisReportStage`：`judge/`（原 `analyze/` 的 3 个类）、`content/`（原 `dimension/`、`summary/`、`tactic/` 原样挪入，字母序仍是子步骤顺序）。取代 11-18“字母序即步骤序”的约定；规则写入 `rules/modules/diagnosis.md`「诊断报告分段执行」。
