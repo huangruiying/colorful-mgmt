@@ -150,7 +150,8 @@ public class GeoDiagnosisReportService {
      * <p>写入（同一事务，任一步失败整体回滚）：
      * <ul>
      *   <li>geo_diagnosis_report_result_analysis：本报告 status = FAILED 的记录改为 PENDING，失败原因与来源清空，由判定重新写入；</li>
-     *   <li>geo_diagnosis_report：1 条，stage = JUDGE、status = PENDING，暂停原因与结束时间清空，判定渠道沿用已冻结的同一渠道。</li>
+     *   <li>geo_diagnosis_report：1 条，stage = JUDGE、status = PENDING，暂停原因、结束时间与冻结的判定提示词版本清空（重判用最新版），
+     *       判定渠道沿用已冻结的同一渠道。</li>
      * </ul>
      * 适用：已暂停或已完成、且有判定失败或待判定回答的报告（没有已启用渠道时暂停的报告只有待判定记录）。</p>
      * @param reportId 诊断报告 ID
@@ -233,6 +234,7 @@ public class GeoDiagnosisReportService {
 
     /**
      * 把报告重新排队：写入后台要执行的段，状态改为待生成，清空暂停原因、结束时间和上一次第 2 段的子步骤进度；只改仍是读取时状态的报告。
+     * 回到判定段（重判）时还清掉冻结的判定提示词版本，重判换用最新版，方便改好提示词后重试。
      * @param report 已确认可重新排队的报告
      * @param stage 后台领取后从哪一段开始
      * @throws IllegalArgumentException 报告状态已被其他操作改变，未写入
@@ -245,7 +247,8 @@ public class GeoDiagnosisReportService {
                 .set(GeoDiagnosisReportEntity::getStatus, DiagnosisReportStatus.PENDING.name())
                 .set(GeoDiagnosisReportEntity::getErrorMessage, null)
                 .set(GeoDiagnosisReportEntity::getFinishedAt, null)
-                .set(GeoDiagnosisReportEntity::getContentProgress, null));
+                .set(GeoDiagnosisReportEntity::getContentProgress, null)
+                .set(stage == DiagnosisReportStage.JUDGE, GeoDiagnosisReportEntity::getPromptVersion, null));
         if (changed != 1) {
             throw new IllegalArgumentException("报告状态已变化，请刷新后再试");
         }
@@ -381,17 +384,29 @@ public class GeoDiagnosisReportService {
     }
 
     /**
-     * 冻结本报告的判定渠道与提示词版本；已冻结的报告不改写，保证续跑时使用同一判定口径。
+     * 冻结本报告的判定渠道；已冻结的报告不改写，保证续跑与重跑时使用同一判定渠道。
      * @param reportId 报告 ID
      * @param judgeChannelSnapshot 判定渠道的非敏感配置快照 JSON
-     * @param promptVersion 判定提示词版本
      */
     @Transactional
-    public void freezeJudgeChannel(long reportId, String judgeChannelSnapshot, String promptVersion) {
+    public void freezeJudgeChannel(long reportId, String judgeChannelSnapshot) {
         reportDao.update(null, new LambdaUpdateWrapper<GeoDiagnosisReportEntity>()
                 .eq(GeoDiagnosisReportEntity::getId, reportId)
                 .isNull(GeoDiagnosisReportEntity::getJudgeChannelSnapshot)
-                .set(GeoDiagnosisReportEntity::getJudgeChannelSnapshot, judgeChannelSnapshot)
+                .set(GeoDiagnosisReportEntity::getJudgeChannelSnapshot, judgeChannelSnapshot));
+    }
+
+    /**
+     * 冻结本报告判定用的提示词版本（如 v3）；已冻结的不改写，服务重启后续跑沿用同一版，同一份报告判定口径一致。
+     * 用户手动重判时版本被清空（见 updateReportRequeued），下次判定重新冻结为当时的最新版。
+     * @param reportId 报告 ID
+     * @param promptVersion 判定提示词版本，取自提示词管理
+     */
+    @Transactional
+    public void freezeJudgePromptVersion(long reportId, String promptVersion) {
+        reportDao.update(null, new LambdaUpdateWrapper<GeoDiagnosisReportEntity>()
+                .eq(GeoDiagnosisReportEntity::getId, reportId)
+                .isNull(GeoDiagnosisReportEntity::getPromptVersion)
                 .set(GeoDiagnosisReportEntity::getPromptVersion, promptVersion));
     }
 

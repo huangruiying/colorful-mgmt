@@ -2,6 +2,36 @@
 
 > 已讨论、暂不实施的想法记录在 [TODO.md](TODO.md)，接手时一并查看。
 
+## 当前交接：report 目录按两段分包（2026-11-19）
+
+- 用户确认：`domain/service/diagnosis/report/` 改为按段分包，包名对应 `DiagnosisReportStage`：`judge/`（原 `analyze/` 的 3 个类）、`content/`（原 `dimension/`、`summary/`、`tactic/` 原样挪入，字母序仍是子步骤顺序）。取代 11-18“字母序即步骤序”的约定；规则写入 `rules/modules/diagnosis.md`「诊断报告分段执行」。
+- 结果：27 个 Java 文件用 `git mv` 搬移，只改 `package` / `import` 行（另有 `DiagnosisReportWorker`、`DiagnosisReportContentProgress` 及两者测试的 import）；类名、方法、注释正文和逻辑不变。全景文档「代码分工」、详细设计的文件路径与第五步分包表已改为新路径。审计见[验收记录第十一步](20261115_area_diagnosis/诊断问题带地域-验收.md)。
+- 验证：去掉 package/import 行后 27 个文件与搬移前逐个比对无差异；旧包名在 src 下残留 0 处；编译通过，report 下 8 个测试类加执行器、子步骤进度两个测试共 53 项全部通过；全量未重跑。
+- 运行实例：8010 仍是搬移前的代码（纯分包，行为不变），下次重启自然用新布局。
+- Git：重命名已进入索引（`git mv`），这些文件里提示词那轮未提交的修改原样留在新路径；未提交。
+
+## 当前交接：TacticGenerator 与 DimensionNormalizer 注释补齐（2026-11-19）
+
+- 结果：两个类的类注释按恢复的 comment-java 1.2 模板改写（首行说明是什么，负责 → 核心入口 → 约束 → 不负责），并补齐方法参数与返回说明、4 段阶段编号和判断处的决策说明；三处挤在一个表达式里的“组装提示词 + 调用模型”拆成两句。行为不变。
+- 验证：去掉注释后的代码对比只有语句拆分；TacticGenerator、DimensionNormalizer、执行器、两个提示词类的定向测试全部通过；全量未重跑。逐方法审计见[验收记录第十步](20261115_area_diagnosis/诊断问题带地域-验收.md)，其中更正了第五到第八步对这两个类的审计结论。
+- 规则：用户确认恢复 2026-10-12 定下的“负责 / 核心入口 / 不负责”类注释模板（2026-10-14 精简规则时被删），已写回 comment-java 1.2 并加“不得删除”保护说明；之后新增或修改的类都按它写，已有的段落式类注释不追溯修改。
+- 待定：优化建议的条目全被校验丢弃时记成功（页面显示“暂无”），地域策略同样情况记失败，口径不一致；是否统一待用户决定。
+- Git：未提交；工作区里还有用户正在进行的 `ContentOptimizationService → optimize/ContentOptimizeService` 重命名等改动，本次没有碰。
+
+## 当前交接：.claude 规则整理（2026-11-19）
+
+- 用户确认：这套 `.claude` 只服务本项目；agents 精简并删掉用不到的角色；项目约定拆出模块决策；授权修改 memory、`settings.local.json` 和根目录 AGENTS.md。
+- 结果：
+  - 项目约定只留跨模块约定（约 25KB → 12KB），模块决策原文移入 `rules/modules/`（diagnosis、prompt-template、llm、browser-takeover），项目约定末尾「模块设计决策」有原章节对照表；每次必读的入口内容约 30KB → 18KB。
+  - 删除：支付通道规则 `channel-integration.md`；未被任何文件引用的 `ai-rules.md`（安全底线并入 CLAUDE.md，“禁止编造”并入 code-scope）；`.claude/AGENTS.md`（根目录 AGENTS.md 的旧副本）；5 个空分组文件；角色 15、17、23、25、28、29（本项目没有对应的设施或流程），30 并入 routing-policy。
+  - 改成本项目做法：异常处理（ProblemDetail + 标准异常，不再写 BizException / 业务码）、接口文档模板、命名示例（取自项目真实方法名）、技术详细设计（角色、标题、落盘路径按 `.doc` 已有文档）、运行时回归（去掉 Apollo / Redis / ContextUser，改为登录会话 + XSRF 令牌；写 memory 须用户同意）、Workflow C（故障排查）与 E（Java 版重构收尾）。
+  - 补上注释规则空白：只有本次没改的方法才不补注释；搬到新类的方法全量审计；一个表达式里的多个动作按动作计阶段；审计表一个方法一行、写明判定依据。
+  - 21 个角色文件统一为短格式（职责 / 何时使用 / 执行 / 交付）；风险升级集中到 routing-policy；根目录 AGENTS.md 只留 Codex 入口与记忆维护说明。
+  - memory：运行时环境换成本项目本机与服务器环境，去掉与规则重复的条目；`settings.local.json` 62 → 32 条，删掉其他项目条目、旧路径和一条带明文数据库密码的规则。
+- 验证：本地链接、对已删文件和角色的残留引用、章节号与「章节名」引用、每个规则文件的读取入口都已脚本检查（只剩模板占位符和说明文字里的省略号）；项目约定 15 节逐字核对去向；comment-java 1.1 未改动。
+- 未做：`comment-python.md` 的示例保留原样（只是格式示例）；Git 都未提交。
+- 下一步：审阅 `.claude` 与 AGENTS.md 的 diff；之后的会话按新入口工作，留意有没有漏掉的读取触发条件。
+
 ## 当前交接：提示词管理（2026-11-19）
 
 - 用户确认：

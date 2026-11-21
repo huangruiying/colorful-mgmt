@@ -2,7 +2,7 @@ package org.huangry.colorful.geo.presentation.task;
 
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
-import org.huangry.colorful.geo.domain.service.diagnosis.report.dimension.DimensionNormalizer.DimensionNormalization;
+import org.huangry.colorful.geo.domain.service.diagnosis.report.content.dimension.DimensionNormalizer.DimensionNormalization;
 import org.huangry.colorful.geo.presentation.task.DiagnosisReportContentProgress.Step;
 import org.junit.jupiter.api.Test;
 

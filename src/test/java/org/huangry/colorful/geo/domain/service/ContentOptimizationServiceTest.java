@@ -3,7 +3,7 @@ package org.huangry.colorful.geo.domain.service;
 import org.huangry.colorful.geo.domain.model.ContentOptimizationReference;
 import org.huangry.colorful.geo.domain.model.ContentOptimizationRequest;
 import org.huangry.colorful.geo.domain.model.ContentOptimizationResult;
-import org.huangry.colorful.geo.domain.service.optimization.ContentOptimizationService;
+import org.huangry.colorful.geo.domain.service.optimize.ContentOptimizeService;
 import org.huangry.colorful.geo.domain.service.prompt.GeoPromptTemplateService;
 import org.huangry.colorful.geo.infrastructure.client.llm.LLMClient;
 import org.huangry.colorful.geo.infrastructure.client.llm.model.LLMCitation;
@@ -67,7 +67,7 @@ class ContentOptimizationServiceTest {
     private GeoPromptTemplateService geoPromptTemplateService;
 
     @InjectMocks
-    private ContentOptimizationService contentOptimizationService;
+    private ContentOptimizeService contentOptimizationService;
 
     /** 拒绝调用模型的用例不会取模板，所以宽松桩。 */
     @BeforeEach

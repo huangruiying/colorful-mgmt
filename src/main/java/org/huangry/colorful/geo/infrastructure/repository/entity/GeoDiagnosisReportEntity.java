@@ -23,7 +23,7 @@ public class GeoDiagnosisReportEntity {
     private String stage;
     /** JSON 字符串：判定所用渠道（默认渠道，即已启用渠道中分数最高者）的非敏感配置，不保存凭据；开始判定时写入。 */
     private String judgeChannelSnapshot;
-    /** 判定提示词版本，用于说明报告结论的判定口径。 */
+    /** 判定提示词版本（如 v2），取自提示词管理，开始判定时冻结、续跑沿用、手动重判时换成最新版；用于说明报告结论的判定口径。 */
     private String promptVersion;
     /** 报告语言，生成报告时选择，默认中文：解析出来的观点概括、维度名、建议与地域策略按此语言书写，问题、回答、引用等原文不翻译。 */
     private String reportLanguage;

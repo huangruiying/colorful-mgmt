@@ -5,7 +5,7 @@ import org.huangry.colorful.geo.domain.model.ContentOptimizationRecord;
 import org.huangry.colorful.geo.domain.model.ContentOptimizationResult;
 import org.huangry.colorful.geo.domain.service.content.ContentOptimizationRecordService;
 import org.huangry.colorful.geo.domain.service.content.ContentPublishRecordService;
-import org.huangry.colorful.geo.domain.service.optimization.ContentOptimizationService;
+import org.huangry.colorful.geo.domain.service.optimize.ContentOptimizeService;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -24,7 +24,7 @@ class ContentOptimizationBusinessTest {
     /** 模型优化成功后，原文与优化稿应作为同一记录保存。 */
     @Test
     void 应保存原文和优化结果() {
-        ContentOptimizationService optimizationService = mock(ContentOptimizationService.class);
+        ContentOptimizeService optimizationService = mock(ContentOptimizeService.class);
         ContentOptimizationRecordService optimizationRecordService = mock(ContentOptimizationRecordService.class);
         ContentPublishRecordService publishRecordService = mock(ContentPublishRecordService.class);
         ContentOptimizationBusiness service = new ContentOptimizationBusiness(

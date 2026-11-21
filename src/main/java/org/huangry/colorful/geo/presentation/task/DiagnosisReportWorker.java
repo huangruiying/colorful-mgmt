@@ -10,19 +10,21 @@ import lombok.extern.slf4j.Slf4j;
 import org.huangry.colorful.geo.domain.service.diagnosis.DiagnosisTaskSnapshots;
 import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisReportService.ReportAnswer;
 import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisReportService;
-import org.huangry.colorful.geo.domain.service.diagnosis.report.analyze.ResultAnalyzer;
-import org.huangry.colorful.geo.domain.service.diagnosis.report.analyze.ResultJudgePrompt;
-import org.huangry.colorful.geo.domain.service.diagnosis.report.dimension.DimensionNormalizer;
-import org.huangry.colorful.geo.domain.service.diagnosis.report.dimension.DimensionNormalizer.DimensionNormalization;
-import org.huangry.colorful.geo.domain.service.diagnosis.report.tactic.TacticGenerator;
-import org.huangry.colorful.geo.domain.service.diagnosis.report.summary.ReportSummarizer;
+import org.huangry.colorful.geo.domain.service.diagnosis.report.judge.ResultAnalyzer;
+import org.huangry.colorful.geo.domain.service.diagnosis.report.content.dimension.DimensionNormalizer;
+import org.huangry.colorful.geo.domain.service.diagnosis.report.content.dimension.DimensionNormalizer.DimensionNormalization;
+import org.huangry.colorful.geo.domain.service.diagnosis.report.content.tactic.TacticGenerator;
+import org.huangry.colorful.geo.domain.service.diagnosis.report.content.summary.ReportSummarizer;
 import org.huangry.colorful.geo.domain.service.llm.GeoLlmChannelService;
+import org.huangry.colorful.geo.domain.service.prompt.GeoPromptTemplateService;
 import org.huangry.colorful.geo.infrastructure.client.llm.LLMStrategyRouter;
 import org.huangry.colorful.geo.infrastructure.common.enums.DiagnosisReportStage;
+import org.huangry.colorful.geo.infrastructure.common.enums.PromptTemplateKey;
 import org.huangry.colorful.geo.infrastructure.common.exceptions.LLMClientException;
 import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisReportEntity;
 import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisReportResultAnalysisEntity;
 import org.huangry.colorful.geo.infrastructure.repository.entity.GeoLlmChannelEntity;
+import org.huangry.colorful.geo.infrastructure.repository.entity.GeoPromptTemplateEntity;
 import org.huangry.colorful.geo.presentation.task.DiagnosisReportContentProgress.Step;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataAccessException;
@@ -36,6 +38,7 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -47,6 +50,7 @@ import javax.sql.DataSource;
  * <p>start 向统一线程池提交单个轮询，tick 领取报告，generate 从报告停在的段开始编排两段，close 通知退出。
  * 任一段有失败都暂停报告，等用户重试该段或忽略失败继续，不自动重试；段与状态的变化都交给报告服务写库。
  * 第 2 段逐步记录四个子步骤的进度（{@link DiagnosisReportContentProgress}），供页面显示走到哪一步。
+ * 提示词从「提示词管理」读取：判定提示词按报告冻结的版本（首次判定时冻结），第 2 段每次用最新版。
  * 数据库会话锁限定同一库唯一执行者，中断的报告下次领取时续跑当前段：判定段接着判剩余记录，第 2 段整段重做。</p>
  */
 @Component
@@ -73,6 +77,8 @@ public class DiagnosisReportWorker {
 	private LLMStrategyRouter router;
 	@Resource
 	private GeoLlmChannelService channelService;
+	@Resource
+	private GeoPromptTemplateService geoPromptTemplateService;
 	@Resource
 	private DataSource dataSource;
 	@Value("${diagnosis.reports.enabled:true}")
@@ -193,10 +199,8 @@ public class DiagnosisReportWorker {
 		try {
 			if (report.getJudgeChannelSnapshot() == null) {
 				GeoLlmChannelEntity channel = router.selectDefaultChannel();
-				geoDiagnosisReportService.freezeJudgeChannel(report.getId(), JSON.toJSONString(diagnosisTaskSnapshots.buildChannelSnapshot(channel), SerializerFeature.WriteMapNullValue),
-						ResultJudgePrompt.PROMPT_VERSION);
+				geoDiagnosisReportService.freezeJudgeChannel(report.getId(), JSON.toJSONString(diagnosisTaskSnapshots.buildChannelSnapshot(channel), SerializerFeature.WriteMapNullValue));
 				report.setJudgeChannelSnapshot(JSON.toJSONString(diagnosisTaskSnapshots.buildChannelSnapshot(channel), SerializerFeature.WriteMapNullValue));
-				report.setPromptVersion(ResultJudgePrompt.PROMPT_VERSION);
 				log.info("诊断报告判定渠道已冻结 reportId={}, channel={}, model={}", report.getId(), channel.getChannelCode(), channel.getModelName());
 				return channel;
 			}
@@ -226,7 +230,12 @@ public class DiagnosisReportWorker {
 	 * @throws SQLException 执行锁连接检查失败，交由轮询处理
 	 */
 	private boolean judgeAnswers(GeoDiagnosisReportEntity report, JSONObject project, GeoLlmChannelEntity channel) throws SQLException {
-		// 1. 逐条判定剩余待判定记录，单条失败只记录原因并继续下一条
+		// 1. 取本报告判定用的提示词：首次冻结当前版本，续跑沿用同一版；提示词缺失时报告已暂停
+		String judgeTemplate = loadJudgePromptTemplate(report);
+		if (judgeTemplate == null) {
+			return false;
+		}
+		// 2. 逐条判定剩余待判定记录，单条失败只记录原因并继续下一条
 		Set<String> publishedUrls = geoDiagnosisReportService.listPublishedUrls();
 		while (! stopped && ! Thread.currentThread().isInterrupted()) {
 			if (lease == null || ! lease.isValid(2)) {
@@ -236,21 +245,46 @@ public class DiagnosisReportWorker {
 			if (analysis == null) {
 				break;
 			}
-			resultAnalyzer.analyzeResult(analysis, project, publishedUrls, channel, report.getReportLanguage());
+			resultAnalyzer.analyzeResult(analysis, project, publishedUrls, channel, judgeTemplate, report.getReportLanguage());
 		}
 		if (stopped || Thread.currentThread().isInterrupted()) {
 			throw new IllegalStateException("诊断报告执行服务正在停止");
 		}
-		// 2. 有判定失败时暂停，等用户重判失败的回答或忽略失败继续
+		// 3. 有判定失败时暂停，等用户重判失败的回答或忽略失败继续
 		Map<String, Long> failureReasons = geoDiagnosisReportService.countAnalysisFailureReasons(report.getId());
 		if (! failureReasons.isEmpty()) {
 			geoDiagnosisReportService.updateReportPaused(report.getId(), buildJudgeFailureReason(failureReasons));
 			log.warn("诊断报告判定有失败，已暂停 reportId={}, failureReasons={}", report.getId(), failureReasons);
 			return false;
 		}
-		// 3. 全部判定成功，进入第 2 段
+		// 4. 全部判定成功，进入第 2 段
 		geoDiagnosisReportService.updateReportStageContent(report.getId());
 		return true;
+	}
+
+	/**
+	 * 取本报告判定用的提示词模板：报告还没冻结版本时取当前版本并冻结（记作 v + 版本号），已冻结时按记下的版本读取，
+	 * 判定可能持续数小时，中途改了提示词也不影响这份报告的判定口径。用户手动重判会清掉冻结的版本，重判用的是最新版。
+	 *
+	 * @param report 停在判定段的报告
+	 * @return 判定提示词模板；提示词未配置或冻结的版本不存在时报告已暂停，返回 null
+	 */
+	private String loadJudgePromptTemplate(GeoDiagnosisReportEntity report) {
+		try {
+			if (report.getPromptVersion() == null) {
+				GeoPromptTemplateEntity template = geoPromptTemplateService.getCurrentTemplate(PromptTemplateKey.DIAGNOSIS_REPORT_RESULT_JUDGE);
+				String promptVersion = "v" + template.getVersion();
+				geoDiagnosisReportService.freezeJudgePromptVersion(report.getId(), promptVersion);
+				report.setPromptVersion(promptVersion);
+				return template.getContent();
+			}
+			int version = Integer.parseInt(report.getPromptVersion().substring(1));
+			return geoPromptTemplateService.getTemplate(PromptTemplateKey.DIAGNOSIS_REPORT_RESULT_JUDGE, version).getContent();
+		} catch (NoSuchElementException exception) {
+			// 提示词缺失不是程序问题：暂停并写明缺哪一个；判定段的重试就是重判，会清掉冻结的版本、改用最新版
+			geoDiagnosisReportService.updateReportPaused(report.getId(), exception.getMessage() + "，请在提示词管理中检查后点重试（重试改用最新版）");
+			return null;
+		}
 	}
 
 	/**
@@ -268,7 +302,8 @@ public class DiagnosisReportWorker {
 
 	/**
 	 * 第 2 段：用判定结果生成报告内容，四步都跑完再看结果——全部成功则冻结内容、报告完成；有失败时保存本次内容并暂停，写明哪几步失败。
-	 * <p>每步开始、结束时更新子步骤进度供页面显示，进度从头记录。维度归一、优化建议或地域策略失败时内容照常生成（维度保持原名，
+	 * <p>三个提示词在开始时取当前版本，第 2 段每次都用最新版。每步开始、结束时更新子步骤进度供页面显示，进度从头记录。
+	 * 维度归一、优化建议或地域策略失败时内容照常生成（维度保持原名，
 	 * 建议或该地域策略标记为生成失败），用户可整段重试或忽略失败继续。生成过程中出现程序异常（如统计出错）时重试也会重复失败，
 	 * 出错的那一步记为失败，不保存内容并暂停，修复后再重新生成；读取和写库失败交由轮询续跑。</p>
 	 *
@@ -277,13 +312,20 @@ public class DiagnosisReportWorker {
 	 * @param channel 判定渠道，用于维度归一、优化建议与地域策略调用
 	 */
 	private void generateContent(GeoDiagnosisReportEntity report, JSONObject project, GeoLlmChannelEntity channel) {
-		// 1. 读取全部回答及判定结果，第 2 段进度从头记录
+		// 1. 读取全部回答与第 2 段三个提示词的当前版本，同一次执行只读一次；提示词缺失时暂停，补上后由用户重试
 		List<ReportAnswer> answers = geoDiagnosisReportService.loadAnswers(report.getId());
+		ContentPromptTemplates templates;
+		try {
+			templates = loadContentPromptTemplates();
+		} catch (NoSuchElementException exception) {
+			geoDiagnosisReportService.updateReportContentPaused(report.getId(), null, exception.getMessage() + "，请在提示词管理中补上后重试", null);
+			return;
+		}
 		DiagnosisReportContentProgress progress = new DiagnosisReportContentProgress();
 		// 2. 依次归一、统计、写建议和地域策略；程序异常时不保存内容，暂停等修复，避免轮询反复重跑产生模型费用
 		JSONObject summary;
 		try {
-			summary = buildContent(report, project, channel, answers, progress);
+			summary = buildContent(report, project, channel, answers, progress, templates);
 		} catch (RuntimeException exception) {
 			log.error("诊断报告内容生成出错 reportId={}, errorType={}", report.getId(), exception.getClass().getSimpleName(), exception);
 			progress.failRunningStep("程序出错");
@@ -304,6 +346,19 @@ public class DiagnosisReportWorker {
 	}
 
 	/**
+	 * 取第 2 段三个提示词（合并同义维度、优化建议、地域策略）的当前版本，本次执行各步都用这一版。
+	 *
+	 * @return 三个提示词的模板
+	 * @throws NoSuchElementException 有提示词还没配置，异常信息写明是哪一个
+	 */
+	private ContentPromptTemplates loadContentPromptTemplates() {
+		return new ContentPromptTemplates(
+				geoPromptTemplateService.getCurrentTemplate(PromptTemplateKey.DIAGNOSIS_REPORT_DIMENSION).getContent(),
+				geoPromptTemplateService.getCurrentTemplate(PromptTemplateKey.DIAGNOSIS_REPORT_ADVICE).getContent(),
+				geoPromptTemplateService.getCurrentTemplate(PromptTemplateKey.DIAGNOSIS_REPORT_REGION_STRATEGY).getContent());
+	}
+
+	/**
 	 * 依次执行第 2 段的四步并逐步保存进度，失败的步骤只记下、不中断：合并同义维度 → 统计 ①–⑦ → 写优化建议 → 写地域策略；
 	 * 维度名、建议与策略按报告语言书写。
 	 *
@@ -311,15 +366,16 @@ public class DiagnosisReportWorker {
 	 * @param project  项目资料
 	 * @param channel  判定渠道
 	 * @param answers  报告的全部回答
-	 * @param progress 本次第 2 段的进度，各步结果记在这里
+	 * @param progress  本次第 2 段的进度，各步结果记在这里
+	 * @param templates 第 2 段三个提示词本次执行用的模板
 	 * @return 本次生成的报告内容，失败的建议或地域策略已标记为生成失败
 	 */
 	private JSONObject buildContent(GeoDiagnosisReportEntity report, JSONObject project, GeoLlmChannelEntity channel, List<ReportAnswer> answers,
-	                                DiagnosisReportContentProgress progress) {
+	                                DiagnosisReportContentProgress progress, ContentPromptTemplates templates) {
 		String reportLanguage = report.getReportLanguage();
 		// 1. 合并同义维度，失败时维度保持原名、记为失败，后面照常统计
 		saveContentProgress(report, progress.startStep(Step.DIMENSION, null));
-		DimensionNormalization dimensions = dimensionNormalizer.normalizeDimensions(answers, channel, report.getId(), reportLanguage);
+		DimensionNormalization dimensions = dimensionNormalizer.normalizeDimensions(answers, channel, report.getId(), reportLanguage, templates.dimension());
 		saveContentProgress(report, progress.finishDimensionStep(dimensions));
 		// 2. 统计 ①–⑦ 的指标、规则问题与各地域机会，只是计算，不调用模型
 		saveContentProgress(report, progress.startStep(Step.SUMMARY, null));
@@ -329,11 +385,12 @@ public class DiagnosisReportWorker {
 		saveContentProgress(report, progress.finishSummaryStep(summary.getJSONArray("issues").size(), regions.size()));
 		// 3. 基于规则发现的问题写优化建议
 		saveContentProgress(report, progress.startStep(Step.ADVICE, null));
-		JSONObject advice = tacticGenerator.generateAdvice(summary.getJSONArray("issues"), project, channel, report.getId(), reportLanguage);
+		JSONObject advice = tacticGenerator.generateAdvice(summary.getJSONArray("issues"), project, channel, report.getId(), reportLanguage,
+				templates.advice());
 		summary.put("advice", advice);
 		saveContentProgress(report, progress.finishAdviceStep(advice));
 		// 4. ⑦ 逐个地域写提升策略，每写完一个地域更新一次进度
-		writeRegionStrategies(report, regions, project, channel, progress);
+		writeRegionStrategies(report, regions, project, channel, progress, templates.regionStrategy());
 		return summary;
 	}
 
@@ -346,16 +403,17 @@ public class DiagnosisReportWorker {
 	 * @param project  项目资料
 	 * @param channel  判定渠道
 	 * @param progress 本次第 2 段的进度
+	 * @param template 地域策略提示词模板，各地域用同一版
 	 */
 	private void writeRegionStrategies(GeoDiagnosisReportEntity report, JSONArray regions, JSONObject project, GeoLlmChannelEntity channel,
-	                                   DiagnosisReportContentProgress progress) {
+	                                   DiagnosisReportContentProgress progress, String template) {
 		List<String> failedRegions = new ArrayList<>();
 		int generatedCount = 0;
 		// 1. 逐个地域写策略，失败只记下地域名，没有机会的不计入已写
 		for (int index = 0; index < regions.size(); index++) {
 			saveContentProgress(report, progress.startStep(Step.REGION_STRATEGY, index + " / " + regions.size()));
 			JSONObject region = regions.getJSONObject(index);
-			JSONObject strategy = tacticGenerator.generateRegionStrategy(region, project, channel, report.getId(), report.getReportLanguage());
+			JSONObject strategy = tacticGenerator.generateRegionStrategy(region, project, channel, report.getId(), report.getReportLanguage(), template);
 			region.put("strategy", strategy);
 			if (TacticGenerator.isFailed(strategy)) {
 				failedRegions.add(region.getString("name"));
@@ -448,5 +506,15 @@ public class DiagnosisReportWorker {
 		} catch (SQLException exception) {
 			log.warn("诊断报告执行锁关闭失败 errorType={}", exception.getClass().getSimpleName());
 		}
+	}
+
+	/**
+	 * 第 2 段三个提示词本次执行用的模板，都是第 2 段开始时取到的当前版本。
+	 *
+	 * @param dimension      合并同义维度提示词模板
+	 * @param advice         优化建议提示词模板
+	 * @param regionStrategy 地域策略提示词模板
+	 */
+	private record ContentPromptTemplates(String dimension, String advice, String regionStrategy) {
 	}
 }
