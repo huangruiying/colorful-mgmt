@@ -1,4 +1,4 @@
-package org.huangry.colorful.geo.domain.service.diagnosis.report.content.tactic;
+package org.huangry.colorful.geo.domain.service.diagnosis.report.content.advice;
 
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONArray;
@@ -17,7 +17,7 @@ import static org.huangry.colorful.geo.infrastructure.client.llm.tools.LLMJsonOu
 
 /**
  * 诊断报告优化建议提示词：把规则发现的问题填进提示词模板交给模型，让它挑重点写出主要发现与优化建议，并严格校验输出；本类不调用模型。
- * <p>整份报告调用一次，由 TacticGenerator 在统计之后调用；模板在「提示词管理」维护，由执行器取出当前版本后传入。
+ * <p>整份报告调用一次，由 AdviceGenerator 在统计之后调用；模板在「提示词管理」维护，由执行器取出当前版本后传入。
  * 模型只能引用问题编号，引用不存在的编号的条目丢弃，防止编造结论。</p>
  */
 @Component
@@ -52,7 +52,7 @@ public class AdvicePrompt {
      * @param output 模型返回的正文，可带前后说明或代码块
      * @param issues 规则发现的问题，用于校验编号
      * @return findings（content、issueIds）与 actions（title、category、content、evidenceStatus、issueIds）
-     * @throws IllegalArgumentException 输出不是有效 JSON 对象
+     * @throws IllegalArgumentException 输出不是有效 JSON 对象，或主要发现与优化建议都没有一条有效条目
      */
     public JSONObject parseAdvice(String output, JSONArray issues) {
         // 1. 截取最外层 JSON 对象，兼容模型在前后附带说明或代码块
@@ -81,6 +81,10 @@ public class AdvicePrompt {
                     .fluentPut("content", action.getString("content") == null ? "" : action.getString("content").strip())
                     .fluentPut("evidenceStatus", action.getString("evidenceStatus"))
                     .fluentPut("issueIds", issueIds));
+        }
+        // 4. 两类全部被丢弃说明输出不可用，交给调用方记为失败，不把空建议当成功（与地域策略口径一致，2026-11-21 用户确认）
+        if (findings.isEmpty() && actions.isEmpty()) {
+            throw new IllegalArgumentException("优化建议没有有效条目");
         }
         return new JSONObject(true).fluentPut("findings", findings).fluentPut("actions", actions);
     }

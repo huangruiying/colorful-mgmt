@@ -9,6 +9,7 @@
 - 代码：`TacticGenerator` 按子步骤拆成两个生成器，方法体逐行搬移，`isFailed` / `isSkipped` 各认各的状态；执行器注入两个生成器；子步骤进度、Business 注释、报告页注释同步。
 - 验证：全量 558 项，仅既有 `shouldRejectDisabledExactTaskChannel` 失败；审计见[验收记录第十三步](20261115_area_diagnosis/诊断问题带地域-验收.md)。
 - 运行实例：8010 未启动，未真实跑报告。Git 未提交（搬移已在索引中）。
+- 补充（2026-11-22）：用户问维度归一会不会 token 过多。查本机库：提示词只送去重后的维度名，最大一份报告 1475 个、平均不到 5 字，输入不是瓶颈，风险在输出回显（416 个实测通过，上千个未验证）。已把规模边界写进 `DimensionNormalizer` 类注释「说明」段；“只输出需要合并的名称”的模板改法记入 TODO.md。规则：`comment.md` §3 加“外部调用的规模边界”一条，`comment-java.md` 1.2 的「说明」段点名规模边界并要求实测数字注明来源。
 - 仍待定：`shouldRejectDisabledExactTaskChannel`；`ContentOptimizationServiceTest` 未随 `ContentOptimizeService` 改名搬包。
 
 ## 当前交接：优化建议全被丢弃时记失败（2026-11-21）

@@ -40,7 +40,7 @@ import java.util.stream.Collectors;
  *   <li>第 1 段 判定每条回答（stage = JUDGE）：规则归类引用来源（{@code ResultRuleAnalyzer.classifySources}），
  *       模型判定品牌、观点、情感（{@code ResultAnalyzer}），单条失败只记录原因并继续；判完有失败则报告暂停，全部成功进入第 2 段。</li>
  *   <li>第 2 段 生成报告内容（stage = CONTENT）：维度归一（{@code DimensionNormalizer}）→ 统计 ①–⑦（{@code ReportSummarizer.buildSummary}）
- *       → 优化建议与各地域提升策略（{@code TacticGenerator}）；每步开始、结束时更新子步骤进度（content_progress）供页面显示；
+ *       → 优化建议（{@code AdviceGenerator}）→ 各地域提升策略（{@code RegionStrategyGenerator}）；每步开始、结束时更新子步骤进度（content_progress）供页面显示；
  *       全部成功则 {@code finishReport} 冻结内容，有失败则保存内容并暂停。</li>
  *   <li>暂停后由用户选择：本类 {@code rejudgeReport} 重判失败的回答，{@code regenerateReportContent} 整段重新生成报告内容，
  *       {@code skipReportFailures} 忽略失败继续；已完成的报告也可重判失败的回答或重新生成报告内容。规则与状态切换都在报告服务中。</li>

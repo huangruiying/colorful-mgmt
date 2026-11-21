@@ -13,7 +13,8 @@ import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisReportServi
 import org.huangry.colorful.geo.domain.service.diagnosis.report.judge.ResultAnalyzer;
 import org.huangry.colorful.geo.domain.service.diagnosis.report.content.dimension.DimensionNormalizer;
 import org.huangry.colorful.geo.domain.service.diagnosis.report.content.dimension.DimensionNormalizer.DimensionNormalization;
-import org.huangry.colorful.geo.domain.service.diagnosis.report.content.tactic.TacticGenerator;
+import org.huangry.colorful.geo.domain.service.diagnosis.report.content.advice.AdviceGenerator;
+import org.huangry.colorful.geo.domain.service.diagnosis.report.content.strategy.RegionStrategyGenerator;
 import org.huangry.colorful.geo.domain.service.diagnosis.report.content.summary.ReportSummarizer;
 import org.huangry.colorful.geo.domain.service.llm.GeoLlmChannelService;
 import org.huangry.colorful.geo.domain.service.prompt.GeoPromptTemplateService;
@@ -70,7 +71,9 @@ public class DiagnosisReportWorker {
 	@Resource
 	private DimensionNormalizer dimensionNormalizer;
 	@Resource
-	private TacticGenerator tacticGenerator;
+	private AdviceGenerator adviceGenerator;
+	@Resource
+	private RegionStrategyGenerator regionStrategyGenerator;
 	@Resource
 	private DiagnosisTaskSnapshots diagnosisTaskSnapshots;
 	@Resource
@@ -385,7 +388,7 @@ public class DiagnosisReportWorker {
 		saveContentProgress(report, progress.finishSummaryStep(summary.getJSONArray("issues").size(), regions.size()));
 		// 3. 基于规则发现的问题写优化建议
 		saveContentProgress(report, progress.startStep(Step.ADVICE, null));
-		JSONObject advice = tacticGenerator.generateAdvice(summary.getJSONArray("issues"), project, channel, report.getId(), reportLanguage,
+		JSONObject advice = adviceGenerator.generateAdvice(summary.getJSONArray("issues"), project, channel, report.getId(), reportLanguage,
 				templates.advice());
 		summary.put("advice", advice);
 		saveContentProgress(report, progress.finishAdviceStep(advice));
@@ -413,11 +416,11 @@ public class DiagnosisReportWorker {
 		for (int index = 0; index < regions.size(); index++) {
 			saveContentProgress(report, progress.startStep(Step.REGION_STRATEGY, index + " / " + regions.size()));
 			JSONObject region = regions.getJSONObject(index);
-			JSONObject strategy = tacticGenerator.generateRegionStrategy(region, project, channel, report.getId(), report.getReportLanguage(), template);
+			JSONObject strategy = regionStrategyGenerator.generateRegionStrategy(region, project, channel, report.getId(), report.getReportLanguage(), template);
 			region.put("strategy", strategy);
-			if (TacticGenerator.isFailed(strategy)) {
+			if (RegionStrategyGenerator.isFailed(strategy)) {
 				failedRegions.add(region.getString("name"));
-			} else if (! TacticGenerator.isSkipped(strategy)) {
+			} else if (! RegionStrategyGenerator.isSkipped(strategy)) {
 				generatedCount++;
 			}
 		}

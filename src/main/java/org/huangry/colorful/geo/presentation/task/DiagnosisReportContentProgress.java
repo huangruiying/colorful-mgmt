@@ -5,7 +5,7 @@ import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
 import lombok.RequiredArgsConstructor;
 import org.huangry.colorful.geo.domain.service.diagnosis.report.content.dimension.DimensionNormalizer.DimensionNormalization;
-import org.huangry.colorful.geo.domain.service.diagnosis.report.content.tactic.TacticGenerator;
+import org.huangry.colorful.geo.domain.service.diagnosis.report.content.advice.AdviceGenerator;
 
 import java.util.ArrayList;
 import java.util.EnumMap;
@@ -76,10 +76,10 @@ final class DiagnosisReportContentProgress {
 	 * @return 本进度，便于直接保存
 	 */
 	DiagnosisReportContentProgress finishAdviceStep(JSONObject advice) {
-		if (TacticGenerator.isFailed(advice)) {
+		if (AdviceGenerator.isFailed(advice)) {
 			return updateStep(Step.ADVICE, StepStatus.FAILED, null);
 		}
-		if (TacticGenerator.isSkipped(advice)) {
+		if (AdviceGenerator.isSkipped(advice)) {
 			return updateStep(Step.ADVICE, StepStatus.SKIPPED, "规则没有发现问题");
 		}
 		return updateStep(Step.ADVICE, StepStatus.SUCCEEDED, null);
