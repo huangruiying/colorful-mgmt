@@ -30,7 +30,7 @@
 - 分工：执行器 `DiagnosisReportWorker` 只负责按段执行、判断结果；段与状态的每次变化、重跑与忽略的前置条件都在 `GeoDiagnosisReportService`，写库带当前状态条件；Controller 和执行器不另写状态规则。重新排队锁所属任务行，与生成新报告串行，同一任务同时最多一份报告在生成（暂停的不算）。
 - 第 2 段子步骤进度（2026-11-19 用户确认）：只拆显示、不拆重试。执行器每步开始、结束时把四个子步骤（合并同义维度、统计、写优化建议、写地域策略）的状态与说明写入 `content_progress`，写地域策略逐个地域报进度；各步结果的说明集中在 `DiagnosisReportContentProgress`。进度写库失败只记警告、不中断生成，重新排队时清空；不要据此做重试或状态判断。
 - 「补全报告」已删除（2026-11-19 用户确认）：早期报告缺内容时用「重新生成报告内容」整段重做，不再维护缺失部分清单。
-- 代码分包（2026-11-19 用户确认）：`domain/service/diagnosis/report/` 下按段分包，包名与 `DiagnosisReportStage` 对应：`judge/` 放第 1 段（`ResultAnalyzer`、`ResultRuleAnalyzer`、`ResultJudgePrompt`），`content/` 放第 2 段，其下 `dimension/`、`summary/`、`tactic/` 按字母序即子步骤顺序（合并同义维度 → 统计 → 优化建议与地域策略）。顶层按段名，不再要求字母序等于执行顺序（取代 2026-11-18 的字母序约定）。第 2 段可以引用第 1 段的判定口径（如 `ResultRuleAnalyzer` 的来源常量），第 1 段不引用第 2 段。
+- 代码分包（2026-11-19 用户确认）：`domain/service/diagnosis/report/` 下按段分包，包名与 `DiagnosisReportStage` 对应：`judge/` 放第 1 段（`ResultAnalyzer`、`ResultRuleAnalyzer`、`ResultJudgePrompt`），`content/` 放第 2 段，其下一个子包对应一个子步骤、包名与页面子步骤和 `DiagnosisReportContentProgress.Step` 一致（2026-11-22 用户确认，取代“字母序即子步骤顺序”）：`dimension/` 合并同义维度（`DimensionNormalizer`）、`summary/` 统计（`ReportSummarizer`）、`advice/` 写优化建议（`AdviceGenerator`）、`strategy/` 写地域策略（`RegionStrategyGenerator`）。包名不表达顺序，顺序写在 `content/package-info.java` 并以执行器的调用为准；不再用 `tactic` 这类页面上没有的伞词。第 2 段可以引用第 1 段的判定口径（如 `ResultRuleAnalyzer` 的来源常量），第 1 段不引用第 2 段。
 
 ## 诊断报告页面与导出网页
 

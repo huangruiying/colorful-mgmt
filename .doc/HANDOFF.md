@@ -2,6 +2,15 @@
 
 > 已讨论、暂不实施的想法记录在 [TODO.md](TODO.md)，接手时一并查看。
 
+## 当前交接：content 包按子步骤拆为四个子包（2026-11-22）
+
+- 用户反馈 `content/` 下三个包看不出做什么和顺序；确认：加 `content/package-info.java` 写顺序，`tactic/` 拆为 `advice/`（`AdvicePrompt`、`AdviceGenerator`）与 `strategy/`（`RegionStrategyPrompt`、`RegionStrategyGenerator`），四个子包对应页面四个子步骤与进度键。规则写入 `rules/modules/diagnosis.md`「代码分包」。
+- 中途用户曾在 IDE 把 `content/` 改名为 `generate/` 并提交了 `content/` 布局（`b9f4fe2`），后决定改回；已用 `git mv` 搬回，路径与 HEAD 一致。曾讨论把枚举 `CONTENT` 也改为 `GENERATE`，因枚举值存在库里、需改库和迁移脚本而放弃。
+- 代码：`TacticGenerator` 按子步骤拆成两个生成器，方法体逐行搬移，`isFailed` / `isSkipped` 各认各的状态；执行器注入两个生成器；子步骤进度、Business 注释、报告页注释同步。
+- 验证：全量 558 项，仅既有 `shouldRejectDisabledExactTaskChannel` 失败；审计见[验收记录第十三步](20261115_area_diagnosis/诊断问题带地域-验收.md)。
+- 运行实例：8010 未启动，未真实跑报告。Git 未提交（搬移已在索引中）。
+- 仍待定：`shouldRejectDisabledExactTaskChannel`；`ContentOptimizationServiceTest` 未随 `ContentOptimizeService` 改名搬包。
+
 ## 当前交接：优化建议全被丢弃时记失败（2026-11-21）
 
 - 用户决定：优化建议与地域策略统一，模型输出校验后没有一条有效条目时记失败（第十步遗留待定项已关闭）。规则写入 `rules/modules/diagnosis.md`「诊断报告分段执行」。
