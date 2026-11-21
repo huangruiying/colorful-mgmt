@@ -2,6 +2,16 @@
 
 > 已讨论、暂不实施的想法记录在 [TODO.md](TODO.md)，接手时一并查看。
 
+## 当前交接：协作规则整体合并与自动检查（2026-11-22）
+
+- 用户确认整体重构 `.claude`，同步根 AGENTS、项目 memory、本机权限配置与项目级 hook；规则入口现在是 [CLAUDE.md](../.claude/CLAUDE.md)。旧角色文件和重复工作流已合并，历史交接中的旧路径仅作追溯，不再作为读取入口。
+- `.claude` 从 57 文件 / 3925 行收敛为 23 文件 / 1238 行（包含新增脚本、用例和配置）；Markdown 从 56 文件 / 3879 行收敛为 19 文件 / 803 行。旧文件逐个去向与限制见 [规则重构验收](20261122_context_rules/规则重构验收.md)。
+- Java 注释原 §1 至 §6 除修正内部引用外逐字保留；四个模块正文保留，提示词模块修正 ContentOptimizeService 名称，LLM 只删一句重复条款。开发/命名、可靠性、测试、文档各自维护唯一规范；公共流程、调查、真实回归分别负责执行步骤。
+- 加入共用只读检查器、11 项回归用例、Claude/Codex 的 SessionStart 和 Stop 配置；专题 rules 增加 paths 限定，避免全部自动加载。校验 0 错误 / 0 长行重复候选，11 项测试与 diff 检查通过，两套配置的四个事件命令直接运行通过。
+- Codex CLI 0.147.0 的 hooks 功能开关开启；新定义仍需客户端审阅信任，真实生命周期触发未验证。说明见 [维护与 hook](../.claude/maintenance.md)，不要把命令测试通过写成客户端已启用。
+- 核对发现 application.yml 的默认值与“未配置密码哈希拒绝启动”要求不一致，已在规则注明；本次未改业务配置，未启动服务、改库、部署或运行业务测试。源码、数据库和旧测试状态须后续现场验证，旧失败清单不作为自动豁免。
+- Git 未暂存、未提交；用户级 Codex memories 未修改。本机 settings.local.json 未受 Git 跟踪，已移除历史一次性执行白名单。
+
 ## 当前交接：content 包按子步骤拆为四个子包（2026-11-22）
 
 - 用户反馈 `content/` 下三个包看不出做什么和顺序；确认：加 `content/package-info.java` 写顺序，`tactic/` 拆为 `advice/`（`AdvicePrompt`、`AdviceGenerator`）与 `strategy/`（`RegionStrategyPrompt`、`RegionStrategyGenerator`），四个子包对应页面四个子步骤与进度键。规则写入 `rules/modules/diagnosis.md`「代码分包」。
