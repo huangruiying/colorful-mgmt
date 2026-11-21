@@ -114,7 +114,7 @@ class DiagnosisReportWorkerTest {
         when(service.findNextPendingAnalysis(9L)).thenReturn(null);
         when(service.loadAnswers(9L)).thenReturn(List.of(new ReportAnswer(succeeded(), new GeoDiagnosisTaskResultEntity())));
         when(summarizer.buildSummary(any(), any(), any(), any(), any())).thenReturn(summaryWithRegion());
-        when(llmClient.query(any(), same(channel))).thenReturn(new LLMResponse("{\"findings\":[],\"actions\":[]}", List.of()),
+        when(llmClient.query(any(), same(channel))).thenReturn(new LLMResponse("{\"findings\":[{\"content\":\"千问很少提到目标\",\"issueIds\":[\"P1\"]}],\"actions\":[]}", List.of()),
                 new LLMResponse("{\"mentionPlays\":[{\"title\":\"进入推荐清单\",\"steps\":[\"发测评\"],\"evidenceStatus\":\"INFERRED\",\"opportunityIds\":[\"R1-O1\"]}]}", List.of()));
 
         ReflectionTestUtils.invokeMethod(worker, "generate", report("JUDGE"));
@@ -156,7 +156,7 @@ class DiagnosisReportWorkerTest {
         when(service.loadAnswers(9L)).thenReturn(List.of(new ReportAnswer(succeededWithDimension(), new GeoDiagnosisTaskResultEntity())));
         when(summarizer.buildSummary(any(), any(), any(), any(), any())).thenReturn(summaryWithOneIssue());
         when(llmClient.query(any(), same(channel))).thenThrow(new LLMClientException("调用失败"))
-                .thenReturn(new LLMResponse("{\"findings\":[],\"actions\":[]}", List.of()));
+                .thenReturn(new LLMResponse("{\"findings\":[{\"content\":\"千问很少提到目标\",\"issueIds\":[\"P1\"]}],\"actions\":[]}", List.of()));
 
         ReflectionTestUtils.invokeMethod(worker, "generate", report("CONTENT"));
 
@@ -187,7 +187,7 @@ class DiagnosisReportWorkerTest {
     void shouldStartFromContentStageWithoutJudging() {
         when(service.loadAnswers(9L)).thenReturn(List.of(new ReportAnswer(succeeded(), new GeoDiagnosisTaskResultEntity())));
         when(summarizer.buildSummary(any(), any(), any(), any(), any())).thenReturn(summaryWithOneIssue());
-        when(llmClient.query(any(), same(channel))).thenReturn(new LLMResponse("{\"findings\":[],\"actions\":[]}", List.of()));
+        when(llmClient.query(any(), same(channel))).thenReturn(new LLMResponse("{\"findings\":[{\"content\":\"千问很少提到目标\",\"issueIds\":[\"P1\"]}],\"actions\":[]}", List.of()));
 
         ReflectionTestUtils.invokeMethod(worker, "generate", report("CONTENT"));
 

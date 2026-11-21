@@ -42,6 +42,18 @@ class TacticGeneratorTest {
         assertEquals("优化建议生成失败，可先查看规则发现的问题", advice.getString("errorMessage"));
     }
 
+    /** 模型输出的发现与建议全被校验丢弃：建议记为失败而不是空的成功，与地域策略口径一致。 */
+    @Test
+    void shouldMarkAdviceFailedWhenAllItemsDiscarded() {
+        when(llmClient.query(any(), same(channel)))
+                .thenReturn(new LLMResponse("{\"findings\":[{\"content\":\"编造\",\"issueIds\":[\"P9\"]}],\"actions\":[]}", List.of()));
+
+        JSONObject advice = generator.generateAdvice(JSON.parseArray("[{\"id\":\"P1\"}]"), new JSONObject().fluentPut("name", "团油"), channel, 9L, "中文", ADVICE_TEMPLATE);
+
+        assertTrue(TacticGenerator.isFailed(advice));
+        assertEquals("优化建议生成失败，可先查看规则发现的问题", advice.getString("errorMessage"));
+    }
+
     /** 每个有机会的地域调用一次模型；某个地域失败只影响该地域，没有机会的地域不调用模型，记为无需执行而不是失败。 */
     @Test
     void shouldGenerateStrategyPerRegionAndIsolateFailures() {

@@ -33,10 +33,24 @@ class AdvicePromptTest {
         assertEquals("纠正价格", advice.getJSONArray("actions").getJSONObject(0).getString("title"));
     }
 
-    /** 输出不是 JSON 时明确失败，由调用方记为建议生成失败。 */
+    /** 输出不是 JSON，或主要发现与优化建议都没有有效条目时明确失败，由调用方记为建议生成失败。 */
     @Test
-    void shouldRejectNonJsonOutput() {
+    void shouldRejectOutputWithoutUsableItems() {
         assertThrows(IllegalArgumentException.class, () -> advicePrompt.parseAdvice("无法回答", issues));
+        assertThrows(IllegalArgumentException.class, () -> advicePrompt.parseAdvice("""
+                {"findings":[{"content":"编造","issueIds":["P9"]}],
+                 "actions":[{"title":"乱写类别","category":"OTHER","evidenceStatus":"INFERRED","issueIds":["P1"]}]}""", issues));
+    }
+
+    /** 只有一类为空时仍是有效结果：发现为空、建议有效照常返回，页面该栏显示“暂无”。 */
+    @Test
+    void shouldAcceptOutputWithOnlyOneUsableList() {
+        JSONObject advice = advicePrompt.parseAdvice("""
+                {"findings":[],
+                 "actions":[{"title":"纠正价格","category":"CORRECT_INFORMATION","evidenceStatus":"ANSWER_STATED","issueIds":["P2"]}]}""", issues);
+
+        assertEquals(0, advice.getJSONArray("findings").size());
+        assertEquals(1, advice.getJSONArray("actions").size());
     }
 
     /** 模板里的目标、卖点、问题列表与报告语言都按变量名填上：问题列表是完整 JSON，模型才能引用编号；没填卖点时留空。 */
