@@ -17,6 +17,11 @@ infrastructure/client：外部协议、平台及浏览器适配
 ```
 
 - 2026-11-22 用户确认：Business 负责完整用例与跨 Service 协作；领域 Service 负责自身业务规则，不接管应用用例的跨 Service 编排。
+- Business 之间禁止互相调用，包括同模块、跨模块与单向调用；需要复用时提取可复用领域能力或应用协作者，由各 Business 调用。应用协作者承载抽出的共同职责，不能作为调用另一个 Business 的转发入口。
+- 领域 Service 之间禁止互相调用，包括同模块、跨模块与单向调用；需要另一领域能力时，由 Business 分别调用并传递结果。不能借中间转发类、事件或回调绕开这一边界；此处限制的是领域 Service，领域 Service 调用基础设施持久化能力不属于被禁的领域服务互调，不按类名是否带 Service 判断所属层。
+- 后台任务也统一经过 application 层，由 Business 或应用执行器组织用例；Worker、定时触发器和消息消费入口只负责领取、调度及执行生命周期，不直接组织领域业务步骤。应用执行器可按已确认的用例边界协调多个领域 Service，领域 Service 互调限制仍按上一条执行。
+- 共享业务规则协作者与接口定义采用 [通用开发规范](../rules/engineering.md) 的要求；不能因协作者不叫 Service 就借其绕过领域调用边界，也不因触发方式不同复制一套业务规则。
+- 业务规则协作者放在 `domain/service/<业务>/` 下，按实际职责命名，如 `ChannelAvailabilityPolicy`（仅演示命名形式，不代表已有该类）；不另设 `domain/policy/`。协作者的数据模型仍按通用模型归属规范统一放 `domain/model/`，不在 service 下另建 model 或用内部业务 DTO 绕过要求。
 - 领域 Service 不直接调用 DAO 或继承 ORM 持久化基类；DAO 调用和数据库实体的内部存储映射收在基础设施持久化能力内。领域与基础设施契约的转换仍按通用模型归属规范执行，不要求基础设施引用领域模型。
 - 2026-11-22 用户确认采用 [通用事务与外部调用规范](../rules/engineering.md#事务与外部调用)，事务归属、HTTP 拆分及恢复边界只在该处维护。
 - 上述职责是确认后的目标约束，既有代码是否符合须按实际改动范围检查；本次不迁移业务实现，也不代表可靠任务或 outbox 已实现。
@@ -56,13 +61,14 @@ infrastructure/client：外部协议、平台及浏览器适配
 - 同一基础设施边界内复用已有 MyBatis-Plus 能力，例如 `getById`；不新增无职责的转发方法。为隔离数据库实体与领域模型而做的查询结果转换属于必要边界，不能据此删除。记录缺失判断由需要该业务语义的位置负责。
 - 避免重复查询和同一模型的无意义二次复制；不同层契约的必要映射必须保留。保存后为取得数据库生成的 ID、时间而回读，有明确用途，可保留。
 - 状态更新只修改目标字段，避免把旧实体全量回写覆盖其他配置。
-- 主流程、复用与抽象判断见 [开发规范](../rules/engineering.md)，日志和失败边界见 [可靠性规范](../rules/reliability.md)，职责与状态说明见 [Java 注释](../rules/comments/comment-java.md)。
+- 2026-11-22 用户确认采用 [职责与结构规范](../rules/engineering.md#职责与结构) 中的业务阶段私有方法拆分和按职责拆类要求；主流程、复用与抽象判断只在该处维护。阶段提取不免除 [Java 注释](../rules/comments/comment-java.md) 的入口分段与编号要求；日志和失败边界见 [可靠性规范](../rules/reliability.md)。
 - 不打印问题原文、回答原文或凭据；模型密钥的具体隔离契约见大模型模块决策。
 
 ## 列表与分页
 
+- 跨能力的列表、详情查询严格由 Business 分别调用各领域 Service 批量读取，再组装接口输出；不以只读、复杂聚合或联表效率为由，让 Business 直接调用基础设施查询能力，也不让单个领域 Service 绕过其他领域能力读取其数据。领域 Service 仍通过各自基础设施持久化能力查询；批量结果按业务标识关联，避免逐条调用形成 N+1 查询。
 - 所有分页列表接口统一返回 `infrastructure/common/model/PageResponse<T>`（`items`、`total`、`page`、`size`），不再为每个模块新建 `XxxPage`。
-- 分页参数统一用 `infrastructure/common/model/PageQuery`：Business 用接口入参 `new PageQuery(page, size[, keyword])` 构造，构造时校验页码从 0 开始、`size` 为 1～100、关键词去空白且最多 200 字，空白视为未填写；不再各自写校验。Service 接收 `PageQuery`，用 `.last(pageQuery.limitClause())` 或 `offset()` 分页，用 `pageQuery.toResponse(items, total)` 组装结果；列表和总数使用同一筛选条件。
+- 分页参数统一用 `infrastructure/common/model/PageQuery`：Business 用接口入参 `new PageQuery(page, size[, keyword])` 构造，构造时校验页码从 0 开始、`size` 为 1～100、关键词去空白且最多 200 字，空白视为未填写；不再各自写校验。领域 Service 接收 `PageQuery`，由基础设施持久化能力使用 `.last(pageQuery.limitClause())` 或 `offset()` 实现分页，领域 Service 不直接操作 ORM。Business 在接口输出边界用 `pageQuery.toResponse(items, total)` 组装结果；列表和总数使用同一筛选条件，跨能力组装不能在分页后追加筛选或排序而造成总数、顺序与分页语义不一致。
 - 列表行只给列表用时建行类，命名 `XxxPageItem`（如 `ContentOptimizationRecordPageItem`）；模型所属层按通用规范确定；与创建、详情共用同层同职责模型时可复用，不为列表再复制一份。
 - 列表方法注释直白写“XX列表（分页）查询，可按 X 筛选”；不用“摘要”指代列表行，不在不负责的层写“避免加载正文”等说明。
 
