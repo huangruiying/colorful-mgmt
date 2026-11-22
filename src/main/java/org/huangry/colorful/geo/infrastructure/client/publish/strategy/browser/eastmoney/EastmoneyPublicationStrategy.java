@@ -1,7 +1,6 @@
 package org.huangry.colorful.geo.infrastructure.client.publish.strategy.browser.eastmoney;
 
 import lombok.RequiredArgsConstructor;
-import org.huangry.colorful.geo.infrastructure.client.publish.browser.eastmoney.EastmoneyBrowserClient;
 import org.huangry.colorful.geo.infrastructure.client.publish.model.PlatformPublicationRequest;
 import org.huangry.colorful.geo.infrastructure.client.publish.model.PrePublicationRequest;
 import org.huangry.colorful.geo.infrastructure.client.publish.model.PublicationResult;
@@ -12,12 +11,26 @@ import org.huangry.colorful.geo.infrastructure.common.exceptions.PublicationClie
 import org.springframework.stereotype.Component;
 
 /**
- * 东方财富草稿的预发布策略（已接入并真实验证）。
+ * <pre>
+ * 东方财富的内容投放策略：把投放请求交给 EastmoneyBrowserClient 在平台上操作，并转换为统一的投放结果
  *
- * <p>execPrePublish 委托 {@link EastmoneyBrowserClient} 使用数据库浏览器会话创建东方财富草稿；
- * 创作者中心入口与编辑器选择器已通过真实已登录会话探索获得，并在真实 macOS 浏览器中完整跑通
- * （填标题+正文→保存并预览→草稿已保存→重载可恢复），非凭印象推断。公开发布尚未接入，
- * execPublish 抛"暂未接入"，禁止把草稿误标成已发布。</p>
+ * 负责：
+ * - 声明本策略负责东方财富平台
+ * - 预发布：调用 EastmoneyBrowserClient.createDraft 创建并回读草稿，把草稿 ID、编辑链接映射为“已建草稿”
+ * - 草稿 ID 取不到时在提示里引导到草稿箱核对，不伪造标识
+ *
+ * 核心入口：
+ * - prePublish(...)：投放路由 PublicationPlatformStrategyRouter 按平台选中本策略后调用，父类校验后进入 execPrePublish
+ * - publish(...)：公开发布尚未接入，调用即拒绝
+ *
+ * 约束：
+ * - 不自动重试；客户端报告结果未确认时原样抛出，由上层提示人工核对
+ *
+ * 不负责：
+ * - 浏览器页面操作与登录态读取（EastmoneyBrowserClient）
+ * - 按平台去重与串行执行（ContentPublicationService）
+ * - 投放记录的领取、结果回写与人工核对提示（ContentPrePublishWorker）
+ * </pre>
  *
  * @author huangry
  */

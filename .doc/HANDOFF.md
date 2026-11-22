@@ -2,6 +2,13 @@
 
 > 已讨论、暂不实施的想法记录在 [TODO.md](TODO.md)，接手时一并查看。
 
+## 当前交接：发布平台客户端移入策略包（2026-11-22）
+
+- 用户要求只移动、不合并逻辑：16 个 `publish/browser/<平台>/XxxBrowserClient`（含无调用方的小红书客户端）与 `PublicationBrowserProperties` 原样移到 `publish/strategy/browser/`，与对应策略同包；14 个客户端测试同步移动。`publish/browser/` 已删除。中途一度误做成“把客户端逻辑合并进策略”，已整体撤回到 HEAD 后重做。
+- 代码逻辑零改动：33 个相关文件去掉注释、空白和 package/import 后与 HEAD 逐一一致；客户端仍为原注入方式（9 个构造器注入未改）。按注释规则，客户端与策略类注释改为模板，客户端方法补齐入口编号、`@throws` 与决策说明，东方财富、简书 `createDraftInBrowser` 缩进对齐，审计见 [验收记录](20261115_area_diagnosis/投放平台客户端移入策略包-验收.md)。
+- 测试：发布包 101 个全过、全量 558 个仅 1 个失败，均与 HEAD 干净编译基线一致；唯一失败 `LLMStrategyRouterTest.shouldRejectDisabledExactTaskChannel` 是既有问题。未启动服务，Spring 装配与真实平台行为未验证。改名由 `git mv` 进入暂存区，未提交。VSCode Java 扩展会把编辑中途的代码编进 `target/classes`，验证前需 `mvn clean`。
+- 登录态读取（方案 A/B）、发布模型归属、可选平台列表、`DraftCreated` 归位等仍在 TODO「平台登录与内容投放的分层整改」。
+
 ## 当前交接：第四轮确认协作者目录与应用查询边界（2026-11-22）
 
 - 用户确认规则协作者放 `domain/service/<业务>/`，数据仍统一归 `domain/model/`；Business 禁止互调，共同职责提取为领域能力或应用协作者，不能借协作者转发到另一 Business。正文并入 [项目分层约定](../.claude/memory/project-conventions.md#分层与数据流)，不新建重复规则文件。

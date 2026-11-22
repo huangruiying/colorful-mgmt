@@ -1,6 +1,5 @@
 package org.huangry.colorful.geo.infrastructure.client.publish.strategy.browser.baijiahao;
 
-import org.huangry.colorful.geo.infrastructure.client.publish.browser.baijiahao.BaijiahaoBrowserClient;
 import org.huangry.colorful.geo.infrastructure.client.publish.model.PlatformPublicationRequest;
 import org.huangry.colorful.geo.infrastructure.client.publish.model.PublicationResult;
 import org.huangry.colorful.geo.infrastructure.common.enums.PublicationPlatformType;
