@@ -20,7 +20,22 @@ import org.springframework.web.bind.annotation.RestController;
 
 
 /**
- * 内容优化记录接口；提供优化与查询，不接收平台发布动作。
+ * <pre>
+ * 内容优化记录的管理接口：优化并保存内容、分页查询记录、查看单篇详情
+ *
+ * 负责：
+ * - 接收「内容投放 → 内容优化」页面的请求，交给 ContentOptimizationBusiness 处理
+ * - 记录请求与响应的长度、数量等摘要日志，不记录正文
+ *
+ * 核心入口：
+ * - optimizeAndSave(...)：POST content-optimize/optimize，页面提交原文时调用
+ * - listContentOptimizationRecords(...)：GET content-optimize/list，记录列表分页加载时调用
+ * - getContentOptimizationRecord(...)：GET content-optimize/detail/{id}，打开单篇详情时调用
+ *
+ * 不负责：
+ * - 平台预发布与发布记录（ContentPublishMgmtController）
+ * - 优化与保存逻辑（ContentOptimizationBusiness）
+ * </pre>
  */
 @RestController
 @RequiredArgsConstructor
@@ -38,7 +53,7 @@ public class ContentOptimizationController {
      */
     @PostMapping("optimize")
     @ResponseStatus(HttpStatus.CREATED)
-    public ContentOptimizationRecord optimize(@RequestBody CreateContentOptimizationRecordRequest request) {
+    public ContentOptimizationRecord optimizeAndSave(@RequestBody CreateContentOptimizationRecordRequest request) {
         log.info("创建内容优化记录 request contentLength={} strategyCount={}",
                 request.content() == null ? 0 : request.content().length(),
                 request.strategies() == null ? 0 : request.strategies().size());
@@ -55,8 +70,9 @@ public class ContentOptimizationController {
      * @return 当前页记录及总数
      */
     @GetMapping("list")
-    public PageResponse<ContentOptimizationRecordPageItem> list(@RequestParam(value = "page", defaultValue = "0") int page,
-                                  @RequestParam(value = "size", defaultValue = "20") int size) {
+    public PageResponse<ContentOptimizationRecordPageItem> listContentOptimizationRecords(
+            @RequestParam(value = "page", defaultValue = "0") int page,
+            @RequestParam(value = "size", defaultValue = "20") int size) {
         log.info("查询内容优化记录列表 request page={} size={}", page, size);
         PageResponse<ContentOptimizationRecordPageItem> records = optimizationBusiness.listContentOptimizationRecords(page, size);
         log.info("查询内容优化记录列表 response total={} itemCount={}", records.total(), records.items().size());
@@ -70,7 +86,7 @@ public class ContentOptimizationController {
      * @return 内容详情
      */
     @GetMapping("detail/{id}")
-    public ContentOptimizationRecordDetail detail(@PathVariable("id") long id) {
+    public ContentOptimizationRecordDetail getContentOptimizationRecord(@PathVariable("id") long id) {
         log.info("查询内容优化记录详情 request recordId={}", id);
         ContentOptimizationRecordDetail detail = optimizationBusiness.getContentOptimizationRecord(id);
         log.info("查询内容优化记录详情 response recordId={} publishRecordCount={}",

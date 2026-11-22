@@ -5,7 +5,6 @@ import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.alibaba.fastjson.JSON;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.huangry.colorful.geo.application.diagnosis.model.CreateDiagnosisTaskRequest;
-import org.huangry.colorful.geo.infrastructure.client.llm.LLMStrategyRouter;
 import org.huangry.colorful.geo.infrastructure.repository.*;
 import org.huangry.colorful.geo.infrastructure.repository.entity.*;
 import org.junit.jupiter.api.BeforeEach;
@@ -78,7 +77,6 @@ class GeoDiagnosisTaskServiceTest {
     private final GeoProjectInfoDao projects = mock(GeoProjectInfoDao.class);
     private final GeoLlmChannelDao channels = mock(GeoLlmChannelDao.class);
     private final GeoDiagnosisPlanService planService = mock(GeoDiagnosisPlanService.class);
-    private final LLMStrategyRouter router = mock(LLMStrategyRouter.class);
     private final DiagnosisTaskSnapshots snapshots = new DiagnosisTaskSnapshots();
 
     private final List<GeoDiagnosisTaskResultEntity> inserted = new ArrayList<>();
@@ -102,7 +100,6 @@ class GeoDiagnosisTaskServiceTest {
         ReflectionTestUtils.setField(service, "projectDao", projects);
         ReflectionTestUtils.setField(service, "channelDao", channels);
         ReflectionTestUtils.setField(service, "planService", planService);
-        ReflectionTestUtils.setField(service, "router", router);
         ReflectionTestUtils.setField(service, "snapshots", snapshots);
 
         when(tasks.insert(any(GeoDiagnosisTaskEntity.class))).thenAnswer(call -> {

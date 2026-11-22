@@ -2,6 +2,15 @@
 
 > 已讨论、暂不实施的想法记录在 [TODO.md](TODO.md)，接手时一并查看。
 
+## 当前交接：规范检查后的第一批修正（2026-11-22）
+
+- 全项目规范检查结论见 [项目规范检查-2026-11-22](20261115_area_diagnosis/项目规范检查-2026-11-22.md)。本批只做小项，未提交 Git。
+- 凭据：`application.yml` 去掉 `GEO_MYSQL_PASSWORD` 默认值；管理员哈希默认值与含明文密码的注释已改过一次，但工作区随后回到原样（非本会话操作），待用户确认是否有意保留。`deploy/.env`（含口令，曾提交 2 次）取消跟踪并加入 `.gitignore`，本地文件保留；部署脚本本就排除该文件，服务器 `.env` 不受影响。别人拉取该提交后本地 `deploy/.env` 会被 Git 删除，需从 `.env.example` 重建。已暴露的口令需轮换，Git 历史仍有旧值。
+- 本机启动现在必须提供环境变量 `GEO_MYSQL_PASSWORD`（IDE 运行配置原先未设置，依赖默认值）。
+- 删除 `GeoDiagnosisTaskService` 未使用的 `LLMStrategyRouter` 注入及单测设置；`ContentOptimizationController` 三个处理方法改为与 Business 同名（接口路径不变）；两类类注释改为模板。
+- 全量测试 558 个，仅 `LLMStrategyRouterTest.shouldRejectDisabledExactTaskChannel` 失败（既有）。该测试要求停用的冻结渠道被拒绝，代码不检查，诊断模块记忆写“只有被删除才失败”，需用户决定产品规则。
+- 未处理、待用户决定：`TestController` 去留；`ContentOptimizationRecordDao` 反向依赖随内容模块分层整改一起做。
+
 ## 当前交接：发布平台客户端移入策略包（2026-11-22）
 
 - 用户要求只移动、不合并逻辑：16 个 `publish/browser/<平台>/XxxBrowserClient`（含无调用方的小红书客户端）与 `PublicationBrowserProperties` 原样移到 `publish/strategy/browser/`，与对应策略同包；14 个客户端测试同步移动。`publish/browser/` 已删除。中途一度误做成“把客户端逻辑合并进策略”，已整体撤回到 HEAD 后重做。

@@ -11,7 +11,6 @@ import org.huangry.colorful.geo.infrastructure.common.enums.DiagnosisTaskResultS
 import lombok.extern.slf4j.Slf4j;
 import org.huangry.colorful.geo.application.diagnosis.model.CreateDiagnosisTaskRequest;
 import org.huangry.colorful.geo.infrastructure.client.llm.model.LLMResponse;
-import org.huangry.colorful.geo.infrastructure.client.llm.LLMStrategyRouter;
 import org.huangry.colorful.geo.infrastructure.repository.*;
 import org.huangry.colorful.geo.infrastructure.repository.entity.*;
 import org.springframework.stereotype.Service;
@@ -19,7 +18,30 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.*;
 
-/** 诊断任务持久化与状态流转；事务只覆盖数据库操作，不包含外部模型调用。 */
+/**
+ * <pre>
+ * 诊断任务与诊断结果的保存和状态流转：创建任务时冻结方案，后台执行时逐条领取诊断结果并回写调用结果
+ *
+ * 负责：
+ * - 创建诊断任务：在同一事务冻结方案、问题与渠道，生成全部待执行的诊断结果
+ * - 任务与诊断结果的领取、成功/失败回写、汇总终态、中断与重新排队
+ * - 执行前精确读取冻结的渠道，渠道已删除或配置与快照不一致时拒绝执行
+ * - 取得唯一执行锁后恢复此前实例中断的任务
+ *
+ * 核心入口：
+ * - createTask(...)、findByRequest(...)、validateSamePlan(...)、restartTask(...)：DiagnosisTaskBusiness 创建或重启任务时调用
+ * - claimNextTask()、claimNextResult(...)、confirmTaskChannel(...)、updateResultSucceeded(...)、updateResultFailed(...)、
+ *   finishTask(...)、interruptTask(...)、recoverInterruptedTasks()：DiagnosisTaskWorker 后台执行时调用
+ *
+ * 约束：
+ * - 事务只覆盖数据库操作，不包含外部模型调用
+ * - 失败的诊断结果不自动再次调用模型；重新排队只重做非成功的结果，保留成功回答与原冻结配置
+ *
+ * 不负责：
+ * - 调用模型与执行调度（DiagnosisTaskWorker）
+ * - 诊断报告（GeoDiagnosisReportService）
+ * </pre>
+ */
 @Service
 @Slf4j
 public class GeoDiagnosisTaskService {
@@ -35,8 +57,6 @@ public class GeoDiagnosisTaskService {
     private GeoLlmChannelDao channelDao;
     @Resource
     private GeoDiagnosisPlanService planService;
-    @Resource
-    private LLMStrategyRouter router;
     @Resource
     private DiagnosisTaskSnapshots snapshots;
 
