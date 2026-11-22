@@ -5,11 +5,11 @@
 ## 当前交接：规范检查后的第一批修正（2026-11-22）
 
 - 全项目规范检查结论见 [项目规范检查-2026-11-22](20261115_area_diagnosis/项目规范检查-2026-11-22.md)。本批只做小项，未提交 Git。
-- 凭据：`application.yml` 去掉 `GEO_MYSQL_PASSWORD` 默认值；管理员哈希默认值与含明文密码的注释已改过一次，但工作区随后回到原样（非本会话操作），待用户确认是否有意保留。`deploy/.env`（含口令，曾提交 2 次）取消跟踪并加入 `.gitignore`，本地文件保留；部署脚本本就排除该文件，服务器 `.env` 不受影响。别人拉取该提交后本地 `deploy/.env` 会被 Git 删除，需从 `.env.example` 重建。已暴露的口令需轮换，Git 历史仍有旧值。
-- 本机启动现在必须提供环境变量 `GEO_MYSQL_PASSWORD`（IDE 运行配置原先未设置，依赖默认值）。
+- 凭据：曾修改 `application.yml` 口令默认值并取消跟踪 `deploy/.env`，用户确认管理员默认值有意保留，并已把 `application.yml`、`.gitignore`、`deploy/.env` 全部恢复原样。用户要求：`.env`、`application.yml` 等已有外部配置，未经明确要求不要修改，检查发现的问题只报告；经用户授权已写入 [项目入口「协作与授权」](../.claude/CLAUDE.md#协作与授权)，结构检查 0 错误。
 - 删除 `GeoDiagnosisTaskService` 未使用的 `LLMStrategyRouter` 注入及单测设置；`ContentOptimizationController` 三个处理方法改为与 Business 同名（接口路径不变）；两类类注释改为模板。
 - 全量测试 558 个，仅 `LLMStrategyRouterTest.shouldRejectDisabledExactTaskChannel` 失败（既有）。该测试要求停用的冻结渠道被拒绝，代码不检查，诊断模块记忆写“只有被删除才失败”，需用户决定产品规则。
 - 未处理、待用户决定：`TestController` 去留；`ContentOptimizationRecordDao` 反向依赖随内容模块分层整改一起做。
+- 诊断报告第 2 段子步骤“统计 ①–⑦”易被理解为 ⑥⑦ 的模型内容已提前生成（实际只算 ⑥ 规则问题与 ⑦ 地域状态和机会），用户选定改名为“统计指标、规则问题与地域机会”：页面 `diagnosis-reports.js` 与 `DiagnosisReportContentProgress.Step.SUMMARY`（拼暂停原因）同步修改，其他描述计算内容的注释仍准确未改。相关 Java 测试通过；前端 node 测试 64 个中 11 个失败，与 HEAD 一致且无用例覆盖该页面，未在浏览器中查看新标签排版。
 
 ## 当前交接：发布平台客户端移入策略包（2026-11-22）
 

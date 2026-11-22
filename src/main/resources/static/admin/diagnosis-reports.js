@@ -21,7 +21,7 @@
     const stageStateLabels = Object.freeze({idle:"未开始", queued:"排队中", running:"进行中", paused:"已暂停", failed:"失败", done:"已完成"});
     // 第 2 段的四个子步骤、各自状态的文字与样式；与后端 DiagnosisReportContentProgress 一致
     const CONTENT_STEPS = Object.freeze(["DIMENSION", "SUMMARY", "ADVICE", "REGION_STRATEGY"]);
-    const contentStepLabels = Object.freeze({DIMENSION:"合并同义维度", SUMMARY:"统计 ①–⑦", ADVICE:"写优化建议", REGION_STRATEGY:"写地域策略"});
+    const contentStepLabels = Object.freeze({DIMENSION:"合并同义维度", SUMMARY:"统计指标、规则问题与地域机会", ADVICE:"写优化建议", REGION_STRATEGY:"写地域策略"});
     const contentStepStatusLabels = Object.freeze({PENDING:"未开始", RUNNING:"进行中", SUCCEEDED:"完成", FAILED:"失败", SKIPPED:"无需执行"});
     const contentStepStates = Object.freeze({PENDING:"idle", RUNNING:"running", SUCCEEDED:"done", FAILED:"failed", SKIPPED:"skipped"});
     // 已完成报告重跑前的确认文字
