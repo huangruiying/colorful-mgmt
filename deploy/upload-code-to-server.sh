@@ -2,8 +2,8 @@
 # 在本地电脑执行：把当前工作区的源码打包，通过一次 SSH 连接发送到服务器并替换，只需输入一次服务器密码。
 # 包含 pom.xml、src、deploy（未提交的修改也会带上）；不包含 .git、target 和 deploy/.env，服务器上的 .env 保持不变。
 # 用法：
-#   sh deploy/upload-to-server.sh        只上传代码
-#   sh deploy/upload-to-server.sh -r     上传后在服务器执行 rebuild.sh 重新构建并启动
+#   sh deploy/upload-code-to-server.sh        只上传代码
+#   sh deploy/upload-code-to-server.sh -r     上传后在服务器执行 rebuild.sh 重新构建并启动
 set -e
 
 # 服务器登录地址和服务器上仓库根目录（deploy 的上一级），首次使用前填写
@@ -11,7 +11,7 @@ SERVER="root@118.145.112.118"
 REMOTE_DIR="/root/colorful-geo-mgmt"
 
 case "$SERVER$REMOTE_DIR" in
-    *服务器*) echo "请先编辑 deploy/upload-to-server.sh，填写 SERVER 和 REMOTE_DIR" >&2; exit 1 ;;
+    *服务器*) echo "请先编辑 deploy/upload-code-to-server.sh，填写 SERVER 和 REMOTE_DIR" >&2; exit 1 ;;
 esac
 
 REBUILD=""
