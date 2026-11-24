@@ -64,7 +64,7 @@
 - 客户端模型被上层直接使用：`PublicationResult` 出现在 Controller、Worker、Business 和两个领域服务里；`PublicationPlatformOption` 直接作为 `ContentPublishMgmtController.listConfiguredPlatforms` 的返回值；`ContentPrePublishWorker` 直接构造 `PublicationRequest`。
 - `PublicationRequest`（多平台投放）在客户端代码里没有使用，只有 `ContentPublicationService`、`ContentPrePublishWorker`、`TestPublistBusiness` 在用，实际是领域服务的入参。
 - `ContentPublishBusiness.listConfiguredPlatforms` 直接注入全部发布策略来列平台，绕过了领域服务。
-- `login` 包没有 `model/`，出参写成客户端类的内部 record：`BrowserLoginSnapshot` 3 份、`AccountProbe` 4 份，路由类里另有 `LoginSnapshot`；16 个发布客户端各有一份字段相同的 `DraftCreated`。
+- `login` 包没有 `model/`，出参写成客户端类的内部 record：`BrowserLoginSnapshot` 3 份、`AccountProbe` 4 份，路由类里另有 `LoginSnapshot`；15 个发布客户端各有一份字段相同的 `DraftCreated`（微信公众号直接返回草稿 ID）。
 - 调用登录客户端的 `PlatformBrowserLoginService`（`domain/service/login`）直接注入 `PlatformBrowserLoginDao`。
 - 未展开核查：`PublicationPlatformType`、`PublicationTaskStatus` 等业务枚举放在 `infrastructure/common/enums`；发布客户端直接返回任务状态。
 
