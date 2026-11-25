@@ -4,10 +4,20 @@ import com.alibaba.fastjson.JSONObject;
 import com.fasterxml.jackson.annotation.JsonInclude;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
- * 诊断报告创建、列表、详情及重跑类接口的响应；名称取自诊断任务快照，判定渠道只返回非敏感快照。
- * 报告内容只在详情返回；顶层空字段不输出到 JSON。
+ * <pre>
+ * 诊断报告创建、列表、详情及重跑类接口返回给页面的一份报告
+ *
+ * 负责：
+ * - 报告的所属任务、状态与两段进度，方案与项目名称取自诊断任务快照
+ * - 详情另带报告内容（summary）和诊断大盘的趋势点（dashboardTrend）
+ *
+ * 约束：
+ * - 判定渠道只返回非敏感快照
+ * - 报告内容与大盘趋势只在详情返回；顶层空字段不输出到 JSON
+ * </pre>
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record DiagnosisReportResponse(
@@ -39,6 +49,11 @@ public record DiagnosisReportResponse(
         String reportLanguage,
         /** 报告内容，只在详情返回：已完成时为冻结的内容；停在第 2 段暂停时为已生成的内容，失败部分标记为生成失败；其他状态不返回。 */
         JSONObject summary,
+        /**
+         * ⓪ 诊断大盘的趋势点，只在详情且报告内容里有大盘数字时返回：按任务从早到晚，前面是同方案更早的任务，最后一个是本报告；
+         * 页面用它画趋势，并拿最后两个点算“较上次”。只有本报告一个点时表示没有可比的更早任务。
+         */
+        List<DashboardPointResponse> dashboardTrend,
         /** 暂停或失败原因，写明哪一步失败。 */
         String errorMessage,
         /** 报告创建时间。 */
@@ -56,5 +71,16 @@ public record DiagnosisReportResponse(
      * @param failed 判定失败的数量
      */
     public record ProgressResponse(long total, long pending, long succeeded, long failed) {
+    }
+
+    /**
+     * 诊断大盘趋势上的一个点：一次诊断任务及其报告冻结的大盘数字。
+     * @param taskId 诊断任务 ID（geo_diagnosis_task.id）
+     * @param reportId 提供数字的诊断报告 ID（geo_diagnosis_report.id）
+     * @param time 横轴时间：任务结束时间，没有时为任务创建时间
+     * @param current 是否本报告自己
+     * @param dashboard 大盘数字，结构与 summary.dashboard 相同
+     */
+    public record DashboardPointResponse(Long taskId, Long reportId, LocalDateTime time, boolean current, JSONObject dashboard) {
     }
 }

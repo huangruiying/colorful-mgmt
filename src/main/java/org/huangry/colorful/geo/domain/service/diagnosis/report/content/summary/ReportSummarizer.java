@@ -14,10 +14,26 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 诊断报告汇总入口：把报告的全部回答整理成统计事实，交给各页签的汇总类计算，拼成冻结到报告上的 summary。
- * <p>各页签分工：① ReportOverviewSummarizer，② ReportVisibilitySummarizer，③ ReportBrandSummarizer，④ ReportCompetitorSummarizer，
- * ⑤ ReportSourceSummarizer，⑥ 规则问题 ReportIssueSummarizer，⑦ 地域报告 ReportRegionSummarizer；⑥ 的建议文字与 ⑦ 各地域的提升策略由后台执行器调用模型生成。</p>
- * <p>纯计算，不调用模型、不访问数据库；结果冻结到报告 summary，之后不随规则或数据变化重算。</p>
+ * <pre>
+ * 诊断报告各页签统计数字的总入口：把报告的全部回答算成一份 summary，冻结在报告上供页面展示
+ *
+ * 负责：
+ * - 把每条回答整理成统计用的事实（模型、问题分组、地域、是否提到目标、判定的品牌与来源）
+ * - 按页签交给各自的汇总类计算并拼在一起：⓪ ReportDashboardSummarizer，① ReportOverviewSummarizer，
+ *   ② ReportVisibilitySummarizer，③ ReportBrandSummarizer，④ ReportCompetitorSummarizer，⑤ ReportSourceSummarizer，
+ *   ⑥ 规则问题 ReportIssueSummarizer，⑦ 地域报告 ReportRegionSummarizer
+ *
+ * 核心入口：
+ * - buildSummary(...)：后台执行器在报告第 2 段合并同义维度之后调用，整份报告一次
+ *
+ * 约束：
+ * - 纯计算，不调用模型、不访问数据库
+ * - 结果冻结到报告 summary，之后不随规则或数据变化重算
+ *
+ * 不负责：
+ * - ⑥ 的建议文字与 ⑦ 各地域的提升策略：由后台执行器调用模型生成后写入（AdviceGenerator、RegionStrategyGenerator）
+ * - ⓪ 的历次任务趋势：打开报告详情时由 DiagnosisReportBusiness 现读
+ * </pre>
  */
 @Component
 public class ReportSummarizer {
@@ -39,6 +55,8 @@ public class ReportSummarizer {
     private ReportIssueSummarizer reportIssueSummarizer;
     @Resource
     private ReportRegionSummarizer reportRegionSummarizer;
+    @Resource
+    private ReportDashboardSummarizer reportDashboardSummarizer;
 
     /**
      * 计算并组装冻结的汇总。
@@ -49,7 +67,8 @@ public class ReportSummarizer {
      * @param promptVersion 判定提示词版本
      * @return 汇总 JSON：①② 使用 sample、models、strength、reservations、criteria、concerns；
      *         ③ 品牌认知使用 brand，④ 竞品对比使用 competitor，⑤ 引用与内容使用 source，⑥ 使用 issues（advice 由后台执行器另行写入）；
-     *         ⑦ 地域报告使用 region（各地域的 strategy 由后台执行器另行写入）
+     *         ⑦ 地域报告使用 region（各地域的 strategy 由后台执行器另行写入）；
+     *         ⓪ 诊断大盘使用 dashboard
      */
     public JSONObject buildSummary(List<ReportAnswer> answers, JSONObject project, Map<String, String> dimensionMapping,
                                    JSONObject judgeChannel, String promptVersion) {
@@ -69,6 +88,8 @@ public class ReportSummarizer {
         summary.put("issues", reportIssueSummarizer.buildIssues(summary, judged));
         // 5. ⑦ 地域报告：按问题地域分组，算宣传状态、可见度与机会；不分地域的回答不计入
         summary.put("region", reportRegionSummarizer.buildRegionReport(facts, project, dimensionMapping));
+        // 6. ⓪ 诊断大盘：合计与各模型的被看见、口碑与内容数字，直接从回答事实算，不依赖前面各部分的结果
+        summary.put("dashboard", reportDashboardSummarizer.buildDashboard(facts, project));
         return summary;
     }
 

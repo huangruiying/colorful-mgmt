@@ -4,7 +4,7 @@
  * 包名的字母序不代表顺序，顺序以执行器 {@code DiagnosisReportWorker} 的调用为准：</p>
  * <ol>
  *   <li>{@code dimension}：合并同义维度，入口 {@code DimensionNormalizer}，调用 1 次模型，失败时维度保持原名、后面照常统计</li>
- *   <li>{@code summary}：统计页面 ①–⑦ 的指标、规则问题与各地域机会，入口 {@code ReportSummarizer}，纯计算，不调用模型</li>
+ *   <li>{@code summary}：统计页面 ⓪–⑦ 的指标、规则问题与各地域机会，入口 {@code ReportSummarizer}，纯计算，不调用模型</li>
  *   <li>{@code advice}：写优化建议（页面 ⑥），入口 {@code AdviceGenerator}，整份报告调用 1 次模型</li>
  *   <li>{@code strategy}：写地域提升策略（页面 ⑦），入口 {@code RegionStrategyGenerator}，每个有机会的地域调用 1 次模型</li>
  * </ol>

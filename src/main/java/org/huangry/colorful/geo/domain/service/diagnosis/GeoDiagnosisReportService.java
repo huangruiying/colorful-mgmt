@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.alibaba.fastjson.JSONObject;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.huangry.colorful.geo.domain.model.DiagnosisReportDashboardPoint;
 import org.huangry.colorful.geo.domain.service.llm.GeoLlmChannelService;
 import org.huangry.colorful.geo.infrastructure.common.enums.DiagnosisReportResultAnalysisStatus;
 import org.huangry.colorful.geo.infrastructure.common.enums.DiagnosisReportStage;
@@ -25,7 +26,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -36,11 +39,32 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * 诊断报告的领域服务：报告与回答分析的持久化、段与状态流转，以及生成报告时读取所需数据；每次手动生成创建一份新报告，旧报告保留。
- * <p>报告分两段执行（stage）：JUDGE 判定每条回答 → CONTENT 生成报告内容。状态：PENDING → RUNNING → SUCCEEDED，
- * 任一段有失败时 → PAUSED；用户重判、重新生成报告内容或忽略失败继续时，由本服务校验后改状态，后台执行器下次轮询领取。
- * 段与状态的每次变化都在这里写库并带上当前状态条件，执行器与接口不各自改表。单条分析：PENDING → SUCCEEDED / FAILED，重判时失败的改回 PENDING。
- * 只分析成功且未因输出上限截断的诊断结果；判定与生成内容由后台执行器编排，本服务事务只覆盖数据库操作，不包含模型调用。</p>
+ * <pre>
+ * 诊断报告的领域服务：管报告与回答分析怎么存、报告的段与状态怎么变，以及生成和查看报告时要读的数据
+ *
+ * 负责：
+ * - 创建报告：每次手动生成创建一份新报告并为每条有效回答建待判定记录，旧报告保留
+ * - 段与状态流转：报告分两段执行（stage）：JUDGE 判定每条回答 → CONTENT 生成报告内容；
+ *   状态 PENDING → RUNNING → SUCCEEDED，任一段有失败时 → PAUSED；单条分析 PENDING → SUCCEEDED / FAILED，重判时失败的改回 PENDING
+ * - 重跑的前置校验：用户重判、重新生成报告内容或忽略失败继续时，校验后改状态，后台执行器下次轮询领取
+ * - 读取：生成报告用的任务快照、回答与分析、我方已发布链接；查看报告用的同方案更早任务的大盘数字
+ *
+ * 核心入口：
+ * - createReport(...)：DiagnosisReportBusiness 在用户点击生成时调用
+ * - rejudgeReport(...)、regenerateReportContent(...)、skipReportFailures(...)：DiagnosisReportBusiness 在用户操作暂停或已完成的报告时调用
+ * - claimNextReport() 及各 update / finish / fail 方法：DiagnosisReportWorker 领取和推进报告时调用
+ * - loadAnswers(...)、getTaskSnapshot(...)、listPublishedUrls()：DiagnosisReportWorker 生成报告时读取
+ * - listEarlierDashboardPoints(...)：DiagnosisReportBusiness 打开报告详情时读取 ⓪ 诊断大盘的趋势
+ *
+ * 约束：
+ * - 段与状态的每次变化都在这里写库并带上当前状态条件，执行器与接口不各自改表
+ * - 只分析成功且未因输出上限截断的诊断结果
+ * - 事务只覆盖数据库操作，不包含模型调用
+ *
+ * 不负责：
+ * - 判定回答与生成报告内容的编排（DiagnosisReportWorker）
+ * - 统计数字怎么算（report/content 下各生成类）
+ * </pre>
  */
 @Service
 @Slf4j
@@ -51,6 +75,8 @@ public class GeoDiagnosisReportService {
     private static final String DEFAULT_REPORT_LANGUAGE = "中文";
     /** 报告语言的长度上限，与表字段一致。 */
     private static final int REPORT_LANGUAGE_MAX_LENGTH = 50;
+    /** 诊断大盘趋势往前最多回看多少个任务；加上当前报告，趋势图最多 12 个点。 */
+    private static final int DASHBOARD_HISTORY_LIMIT = 11;
 
     @Resource
     private GeoDiagnosisReportDao reportDao;
@@ -616,6 +642,61 @@ public class GeoDiagnosisReportService {
             }
         }
         return urls;
+    }
+
+    /**
+     * 读取诊断大盘趋势里排在某份报告之前的点：同一方案、比该报告所属任务更早创建的任务，每个任务取最新一份成功报告的大盘数字。
+     * <p>同一任务的多份报告是同一批回答重新判定，只算一个点。最多回看最近 11 个有成功报告的任务；
+     * 其中报告生成于大盘功能之前、没有大盘数字的任务跳过，不再往更早补。只读，不写库。</p>
+     * @param taskId 当前报告所属的诊断任务 ID
+     * @return 按任务从早到晚排列的点；任务不存在、没有更早的任务或它们都没有大盘数字时为空列表
+     */
+    public List<DiagnosisReportDashboardPoint> listEarlierDashboardPoints(long taskId) {
+        GeoDiagnosisTaskEntity task = taskDao.selectById(taskId);
+        if (task == null) {
+            return List.of();
+        }
+        // 1. 同方案更早的任务：任务 ID 随创建时间递增，按 ID 比先后；只取标识与时间，不读快照大字段
+        Map<Long, GeoDiagnosisTaskEntity> earlierTasks = taskDao.selectList(new LambdaQueryWrapper<GeoDiagnosisTaskEntity>()
+                        .eq(GeoDiagnosisTaskEntity::getPlanId, task.getPlanId()).lt(GeoDiagnosisTaskEntity::getId, taskId)
+                        .select(GeoDiagnosisTaskEntity::getId, GeoDiagnosisTaskEntity::getFinishedAt, GeoDiagnosisTaskEntity::getCreatedAt))
+                .stream().collect(Collectors.toMap(GeoDiagnosisTaskEntity::getId, Function.identity()));
+        if (earlierTasks.isEmpty()) {
+            return List.of();
+        }
+        // 2. 每个任务最新一份成功报告的 ID；先不读报告内容，内容是大字段
+        Map<Long, Long> latestReportIds = reportDao.selectList(new LambdaQueryWrapper<GeoDiagnosisReportEntity>()
+                        .in(GeoDiagnosisReportEntity::getTaskId, earlierTasks.keySet())
+                        .eq(GeoDiagnosisReportEntity::getStatus, DiagnosisReportStatus.SUCCEEDED.name())
+                        .select(GeoDiagnosisReportEntity::getId, GeoDiagnosisReportEntity::getTaskId))
+                .stream().collect(Collectors.toMap(GeoDiagnosisReportEntity::getTaskId, GeoDiagnosisReportEntity::getId, Math::max));
+        // 3. 只读最近若干个任务的报告内容，取出其中的大盘数字
+        List<Long> recentReportIds = latestReportIds.entrySet().stream().sorted(Map.Entry.<Long, Long>comparingByKey().reversed())
+                .limit(DASHBOARD_HISTORY_LIMIT).map(Map.Entry::getValue).toList();
+        return recentReportIds.isEmpty() ? List.of() : loadDashboardPoints(recentReportIds, earlierTasks);
+    }
+
+    /**
+     * 读取若干份报告的内容，把其中的大盘数字连同所属任务的时间整理成趋势点。
+     * @param reportIds 诊断报告 ID，每个任务一份
+     * @param tasks 这些报告所属的诊断任务，按任务 ID 索引，提供趋势点的时间
+     * @return 按任务从早到晚排列的点，没有大盘数字的报告不出现
+     */
+    private List<DiagnosisReportDashboardPoint> loadDashboardPoints(List<Long> reportIds, Map<Long, GeoDiagnosisTaskEntity> tasks) {
+        List<DiagnosisReportDashboardPoint> points = new ArrayList<>();
+        for (GeoDiagnosisReportEntity report : reportDao.selectBatchIds(reportIds)) {
+            JSONObject summary = report.getSummary() == null ? null : (JSONObject) snapshots.parseSnapshot(report.getSummary());
+            JSONObject dashboard = summary == null ? null : summary.getJSONObject("dashboard");
+            // 大盘功能之前生成的报告没有这部分数字，不进趋势
+            if (dashboard == null) {
+                continue;
+            }
+            GeoDiagnosisTaskEntity earlierTask = tasks.get(report.getTaskId());
+            points.add(new DiagnosisReportDashboardPoint(earlierTask.getId(), report.getId(),
+                    earlierTask.getFinishedAt() != null ? earlierTask.getFinishedAt() : earlierTask.getCreatedAt(), dashboard));
+        }
+        points.sort(Comparator.comparing(DiagnosisReportDashboardPoint::taskId));
+        return points;
     }
 
     /**
