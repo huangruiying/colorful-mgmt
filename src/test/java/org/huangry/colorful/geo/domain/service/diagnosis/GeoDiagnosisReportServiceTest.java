@@ -281,6 +281,92 @@ class GeoDiagnosisReportServiceTest {
         assertThrows(IllegalStateException.class, () -> service.updateReportStageContent(9L));
     }
 
+    /** 大盘趋势：同方案更早的任务各取最新一份成功报告，按任务从早到晚；没有大盘数字的旧报告跳过，时间取任务结束时间。 */
+    @Test
+    void shouldListEarlierDashboardPointsFromLatestSucceededReportOfEachTask() {
+        when(tasks.selectById(30L)).thenReturn(task("SUCCEEDED"));
+        var first = new GeoDiagnosisTaskEntity();
+        first.setId(10L);
+        first.setCreatedAt(java.time.LocalDateTime.of(2026, 11, 1, 9, 0));
+        var second = new GeoDiagnosisTaskEntity();
+        second.setId(20L);
+        second.setCreatedAt(java.time.LocalDateTime.of(2026, 11, 2, 9, 0));
+        second.setFinishedAt(java.time.LocalDateTime.of(2026, 11, 2, 9, 30));
+        var legacy = new GeoDiagnosisTaskEntity();
+        legacy.setId(5L);
+        legacy.setCreatedAt(java.time.LocalDateTime.of(2026, 10, 1, 9, 0));
+        when(tasks.selectList(any())).thenReturn(List.of(first, second, legacy));
+        // 任务 20 有两份成功报告（同一批回答重新判定），只用后一份
+        when(reports.selectList(any())).thenReturn(List.of(reportOf(101L, 10L, null), reportOf(201L, 20L, null),
+                reportOf(202L, 20L, null), reportOf(51L, 5L, null)));
+        when(reports.selectBatchIds(List.of(202L, 101L, 51L))).thenReturn(List.of(
+                reportOf(202L, 20L, "{\"dashboard\":{\"questions\":3}}"), reportOf(101L, 10L, "{\"dashboard\":{\"questions\":2}}"),
+                reportOf(51L, 5L, "{\"models\":[]}")));
+
+        var points = service.listEarlierDashboardPoints(30L);
+
+        assertEquals(List.of(10L, 20L), points.stream().map(point -> point.taskId()).toList());
+        assertEquals(List.of(101L, 202L), points.stream().map(point -> point.reportId()).toList());
+        assertEquals(java.time.LocalDateTime.of(2026, 11, 1, 9, 0), points.get(0).time());
+        assertEquals(java.time.LocalDateTime.of(2026, 11, 2, 9, 30), points.get(1).time());
+        assertEquals(3, points.get(1).dashboard().getIntValue("questions"));
+    }
+
+    /** 大盘趋势：任务不存在、方案里没有更早的任务，或更早的任务都没有成功报告时，没有可比的点，也不去读报告内容。 */
+    @Test
+    void shouldReturnNoEarlierDashboardPointsWithoutComparableTask() {
+        assertTrue(service.listEarlierDashboardPoints(30L).isEmpty());
+
+        when(tasks.selectById(30L)).thenReturn(task("SUCCEEDED"));
+        when(tasks.selectList(any())).thenReturn(List.of());
+        assertTrue(service.listEarlierDashboardPoints(30L).isEmpty());
+
+        var earlier = new GeoDiagnosisTaskEntity();
+        earlier.setId(10L);
+        when(tasks.selectList(any())).thenReturn(List.of(earlier));
+        when(reports.selectList(any())).thenReturn(List.of());
+        assertTrue(service.listEarlierDashboardPoints(30L).isEmpty());
+        verify(reports, never()).selectBatchIds(any());
+    }
+
+    /** 大盘趋势：更早的任务很多时只回看最近 11 个，加上当前报告趋势图最多 12 个点。 */
+    @Test
+    void shouldLimitEarlierDashboardPointsToRecentTasks() {
+        when(tasks.selectById(30L)).thenReturn(task("SUCCEEDED"));
+        List<GeoDiagnosisTaskEntity> earlier = new java.util.ArrayList<>();
+        List<GeoDiagnosisReportEntity> succeeded = new java.util.ArrayList<>();
+        for (long id = 1; id <= 15; id++) {
+            var task = new GeoDiagnosisTaskEntity();
+            task.setId(id);
+            earlier.add(task);
+            succeeded.add(reportOf(100 + id, id, "{\"dashboard\":{}}"));
+        }
+        when(tasks.selectList(any())).thenReturn(earlier);
+        when(reports.selectList(any())).thenReturn(succeeded);
+        when(reports.selectBatchIds(any())).thenAnswer(invocation -> succeeded.stream()
+                .filter(report -> invocation.<List<Long>>getArgument(0).contains(report.getId())).toList());
+
+        var points = service.listEarlierDashboardPoints(30L);
+
+        assertEquals(11, points.size());
+        assertEquals(List.of(5L, 15L), List.of(points.get(0).taskId(), points.get(10).taskId()));
+    }
+
+    /**
+     * @param id 报告 ID
+     * @param taskId 所属任务 ID
+     * @param summary 报告内容 JSON，可为 null
+     * @return 一份成功报告
+     */
+    private GeoDiagnosisReportEntity reportOf(long id, long taskId, String summary) {
+        var report = new GeoDiagnosisReportEntity();
+        report.setId(id);
+        report.setTaskId(taskId);
+        report.setStatus("SUCCEEDED");
+        report.setSummary(summary);
+        return report;
+    }
+
     @BeforeEach
     void setup() {
         var assistant = new MapperBuilderAssistant(new MybatisConfiguration(), "diagnosis-report-test");

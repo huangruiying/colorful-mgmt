@@ -13,7 +13,8 @@
     // 报告列表每页条数；查询参数与「下一页」是否可用共用
     const PAGE_SIZE = 10;
     let page = 0, reportId = null, answerId = null;
-    let report = null, activeTab = "overview", creating = false;
+    // 打开报告时默认显示第一个页签（⓪ 诊断大盘）
+    let report = null, activeTab = view.tabs[0].key, creating = false;
     // 正在提交重试、忽略失败继续或重跑：提交期间禁用操作按钮，防止重复提交
     let acting = false;
     // 两段的顺序与各段状态的文字；段名取自 DiagnosisReportView.stageLabels
@@ -28,8 +29,8 @@
     const RERUN_CONFIRM = "重跑期间报告不能查看，跑完会重新生成报告内容并替换现有内容。确定重跑吗？";
     // 按模型筛选：空字符串为全部模型；只作用于按模型分行的表格，排行与清单是全部模型合计
     let modelFilter = "";
-    // ⑦ 当前选中的地域子页签，切换模型筛选重绘后保持；打开另一份报告时清空
-    let activeSubtab = null;
+    // 各组子页签当前选中的项（⓪ 的视图与趋势指标、⑦ 的地域），按子页签组的名字记；切换模型筛选重绘后保持，打开另一份报告时清空
+    let activeSubtabs = {};
     const request = window.AdminHttp.requestJson;
     const answerRequests = window.AdminAsync.createRequestScope();
     const createRequests = window.AdminAsync.createRequestScope();
@@ -177,7 +178,7 @@
      */
     async function openDetail(id) {
         detailPoller.stop(); answerRequests.cancel(); answerDialog.close();
-        reportId = id; report = null; activeTab = "overview"; modelFilter = ""; activeSubtab = null; show("detail-error", "");
+        reportId = id; report = null; activeTab = view.tabs[0].key; modelFilter = ""; activeSubtabs = {}; show("detail-error", "");
         byId("report-actions").replaceChildren();
         byId("export-report-html").hidden = true;
         byId("report-detail-title").textContent = "诊断报告 #" + id;
@@ -240,9 +241,12 @@
         else panel.append(...ignoredFailureNote());
         if (!report.summary) return;
         if (modelFilter) panel.append(view.buildModelFilterNote(selectedModelName()));
-        view.renderTab({modelFilter, entries:pageEntries}, panel, activeTab, report.summary);
-        // 重绘后回到之前选中的地域，渲染出来默认是第一个地域
-        if (activeSubtab != null) panel.querySelectorAll("[data-subtab-group]").forEach(group => view.selectSubtab(group, activeSubtab));
+        view.renderTab({modelFilter, entries:pageEntries, trend:report.dashboardTrend}, panel, activeTab, report.summary);
+        // 重绘后回到之前选中的子页签，渲染出来默认是每组的第一个
+        panel.querySelectorAll("[data-subtab-group]").forEach(group => {
+            const selected = activeSubtabs[group.dataset.subtabGroup];
+            if (selected != null) view.selectSubtab(group, selected);
+        });
     }
 
     /** @return {HTMLElement} 两段进度：① 判定每条回答 → ② 生成报告内容，各段标出状态，判定段附带已判定条数，第 2 段列出四个子步骤 */
@@ -447,13 +451,14 @@
     byId("close-evidence").addEventListener("click", () => evidenceDialog.close());
     byId("export-report-html").addEventListener("click", exportReportHtml);
     byId("report-model-filter").addEventListener("change", event => { modelFilter = event.target.value; renderPanel(); });
-    // ⑦ 地域子页签是渲染出的链接，点击只切换同组的内容，并记住所选地域
+    // 子页签是渲染出的链接，点击只切换同组的内容，并按组记住所选项
     byId("report-panel").addEventListener("click", event => {
         const subtab = event.target.closest("[data-subtab]");
         if (!subtab) return;
         event.preventDefault();
-        activeSubtab = subtab.dataset.subtab;
-        view.selectSubtab(subtab.closest("[data-subtab-group]"), activeSubtab);
+        const group = subtab.closest("[data-subtab-group]");
+        activeSubtabs[group.dataset.subtabGroup] = subtab.dataset.subtab;
+        view.selectSubtab(group, subtab.dataset.subtab);
     });
     window.AdminDialogs.bind([createDialog, detailDialog, evidenceDialog, answerDialog], {
         canClose:dialog => dialog !== createDialog || !creating,

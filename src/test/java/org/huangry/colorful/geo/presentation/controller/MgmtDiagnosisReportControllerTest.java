@@ -70,7 +70,7 @@ class MgmtDiagnosisReportControllerTest {
      */
     private DiagnosisReportResponse report(String status, String stage) {
         return new DiagnosisReportResponse(9L, 30L, "加油诊断", "团油", status, stage,
-                new DiagnosisReportResponse.ProgressResponse(70, 70, 0, 0), null, null, null, "英语", null, null, null, null, null);
+                new DiagnosisReportResponse.ProgressResponse(70, 70, 0, 0), null, null, null, "英语", null, null, null, null, null, null);
     }
 
     /** @return 注入模拟业务的独立 MVC */

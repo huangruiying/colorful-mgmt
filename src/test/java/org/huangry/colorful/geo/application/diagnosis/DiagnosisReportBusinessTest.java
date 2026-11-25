@@ -71,6 +71,37 @@ class DiagnosisReportBusinessTest {
         assertThrows(NoSuchElementException.class, () -> business.getReport(99L));
     }
 
+    /** 详情里的大盘趋势：同方案更早任务的点在前，本报告排最后并标为当前；时间取所属任务的结束时间。 */
+    @Test
+    void shouldAppendCurrentReportAfterEarlierDashboardPoints() {
+        when(reports.selectById(9L)).thenReturn(report("SUCCEEDED", "CONTENT", "{\"dashboard\":{\"questions\":5}}"));
+        when(analyses.countStatuses(List.of(9L))).thenReturn(List.of());
+        var earlierDashboard = com.alibaba.fastjson.JSON.parseObject("{\"questions\":4}");
+        when(service.listEarlierDashboardPoints(30L)).thenReturn(List.of(new org.huangry.colorful.geo.domain.model.DiagnosisReportDashboardPoint(
+                20L, 7L, java.time.LocalDateTime.of(2026, 11, 2, 9, 30), earlierDashboard)));
+
+        var trend = business.getReport(9L).dashboardTrend();
+
+        assertEquals(List.of(7L, 9L), trend.stream().map(point -> point.reportId()).toList());
+        assertEquals(List.of(false, true), trend.stream().map(point -> point.current()).toList());
+        assertEquals(4, trend.get(0).dashboard().getIntValue("questions"));
+        assertEquals(List.of(30L, java.time.LocalDateTime.of(2026, 11, 20, 10, 0), 5),
+                List.of(trend.get(1).taskId(), trend.get(1).time(), trend.get(1).dashboard().getIntValue("questions")));
+    }
+
+    /** 大盘功能之前生成的报告没有大盘数字：详情不带趋势，也不去读历史；列表从不带趋势。 */
+    @Test
+    void shouldOmitDashboardTrendWithoutDashboard() {
+        when(reports.selectById(9L)).thenReturn(report("SUCCEEDED", "CONTENT", "{\"models\":[]}"));
+        when(analyses.countStatuses(List.of(9L))).thenReturn(List.of());
+        when(reports.selectCount(any())).thenReturn(1L);
+        when(reports.selectList(any())).thenReturn(List.of(report("SUCCEEDED", "CONTENT", "{\"dashboard\":{}}")));
+
+        assertNull(business.getReport(9L).dashboardTrend());
+        assertNull(business.listReports(null, null, 0, 10).items().get(0).dashboardTrend());
+        verify(service, never()).listEarlierDashboardPoints(anyLong());
+    }
+
     /** 停在第 2 段暂停时返回本次生成的内容；重跑排队、生成中或停在判定段时库里是上一次的内容，不返回。 */
     @Test
     void shouldReturnContentOnlyWhenItIsCurrent() {
@@ -122,6 +153,7 @@ class DiagnosisReportBusinessTest {
         var task = new GeoDiagnosisTaskEntity();
         task.setId(30L);
         task.setPlanSnapshot("{\"planName\":\"加油诊断\",\"project\":{\"name\":\"团油\"}}");
+        task.setFinishedAt(java.time.LocalDateTime.of(2026, 11, 20, 10, 0));
         when(tasks.selectBatchIds(any())).thenReturn(List.of(task));
     }
 

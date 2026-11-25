@@ -210,6 +210,106 @@ class ReportSummarizerTest {
         assertEquals("问题1", issues.getJSONObject(1).getJSONArray("evidence").getJSONObject(0).getString("question"));
     }
 
+    /** ⓪ 诊断大盘·被看见：目标与竞品同口径算提及率、首推率、前三率、平均排名，份额按提及次数分，加起来是 100%。 */
+    @Test
+    void shouldComputeDashboardVisibilityAndMentionShare() {
+        JSONObject dashboard = summarizer.buildSummary(answers(), project, Map.of(), new JSONObject(), "v1").getJSONObject("dashboard");
+
+        // 非品牌题 Q1、Q2、Q5（Q5 判定失败，题数仍算）；判定成功的非品牌回答 4 条
+        assertEquals(3, dashboard.getIntValue("questions"));
+        JSONObject total = dashboard.getJSONObject("total");
+        assertEquals(4, total.getIntValue("nonBrandAnswers"));
+        JSONObject target = total.getJSONArray("brands").getJSONObject(0);
+        JSONObject rival = total.getJSONArray("brands").getJSONObject(1);
+        // 目标：提到 3 条；首推 1 条；前三 2 条（第 1、第 3）；有排名的 2 条，平均 (1 + 3) / 2
+        assertTrue(target.getBooleanValue("target"));
+        assertEquals(List.of(3L, 0.75, 0.25, 0.5, 2.0, 2), List.of(target.getLongValue("mentions"), target.getDouble("mentionRate"),
+                target.getDouble("firstChoiceRate"), target.getDouble("top3Rate"), target.getDouble("averageRank"), target.getIntValue("rankedAnswers")));
+        // 易加油：Q1 两次回答都被推荐，排第 2、第 1
+        assertEquals(List.of("易加油", 2L, 0.5, 0.25, 0.5, 1.5), List.of(rival.getString("brandName"), rival.getLongValue("mentions"),
+                rival.getDouble("mentionRate"), rival.getDouble("firstChoiceRate"), rival.getDouble("top3Rate"), rival.getDouble("averageRank")));
+        assertEquals(0.6, target.getDouble("mentionShare"));
+        assertEquals(0.4, rival.getDouble("mentionShare"));
+        // 只有一个模型时，该模型的数字与合计相同
+        JSONObject model = dashboard.getJSONArray("models").getJSONObject(0);
+        assertEquals(List.of(6L, "能链 claude"), List.of(model.getLongValue("channelId"), model.getString("channelName")));
+        assertEquals(total.getJSONArray("brands"), model.getJSONArray("brands"));
+    }
+
+    /** ⓪ 诊断大盘·合计：把各模型的回答放在一起重新算，不是各模型比率的平均；各模型仍各有一行。 */
+    @Test
+    void shouldPoolAnswersAcrossModelsForDashboardTotal() {
+        // 模型 6：1 条非品牌回答，提到目标；模型 7：3 条非品牌回答，都没提到
+        List<ReportAnswer> answers = new ArrayList<>(List.of(answer(1, 1, "NON_BRAND", "推荐团油",
+                "[{\"name\":\"团油\",\"type\":\"TARGET\",\"recommended\":true,\"rank\":1}]", "[]", null, "SUCCEEDED")));
+        for (int question = 1; question <= 3; question++) {
+            ReportAnswer other = answer(question, 1, "NON_BRAND", "没有合适的", "[]", "[]", null, "SUCCEEDED");
+            other.result().setChannelSnapshot("{\"id\":7,\"channelName\":\"千问\",\"modelName\":\"qwen\"}");
+            answers.add(other);
+        }
+
+        JSONObject dashboard = summarizer.buildSummary(answers, project, Map.of(), new JSONObject(), "v1").getJSONObject("dashboard");
+
+        // 合计 1 / 4；按模型比率平均会是 (100% + 0%) / 2
+        assertEquals(0.25, dashboard.getJSONObject("total").getJSONArray("brands").getJSONObject(0).getDouble("mentionRate"));
+        assertEquals(List.of(1.0, 0.0), dashboard.getJSONArray("models").stream()
+                .map(model -> ((JSONObject) model).getJSONArray("brands").getJSONObject(0).getDouble("mentionRate")).toList());
+    }
+
+    /** ⓪ 诊断大盘·边界：没有预设竞品时目标独占份额；谁都没被提到、没有被推荐的排名时，份额与平均排名为空而不是 0。 */
+    @Test
+    void shouldLeaveDashboardShareAndRankEmptyWithoutData() {
+        JSONObject alone = summarizer.buildSummary(answers(), JSON.parseObject("{\"name\":\"团油\"}"), Map.of(), new JSONObject(), "v1")
+                .getJSONObject("dashboard").getJSONObject("total");
+        assertEquals(1, alone.getJSONArray("brands").size());
+        assertEquals(1.0, alone.getJSONArray("brands").getJSONObject(0).getDouble("mentionShare"));
+
+        List<ReportAnswer> silent = List.of(answer(1, 1, "NON_BRAND", "没有合适的", "[]", "[]", null, "SUCCEEDED"));
+        JSONObject target = summarizer.buildSummary(silent, project, Map.of(), new JSONObject(), "v1")
+                .getJSONObject("dashboard").getJSONObject("total").getJSONArray("brands").getJSONObject(0);
+        assertEquals(0.0, target.getDouble("mentionRate"));
+        assertNull(target.getDouble("mentionShare"));
+        assertNull(target.getDouble("averageRank"));
+    }
+
+    /** ⓪ 诊断大盘·前三率：判定为首推但没写排名的也算进前三，排第 4 的不算。 */
+    @Test
+    void shouldCountFirstChoiceWithoutRankAsDashboardTop3() {
+        List<ReportAnswer> answers = List.of(
+                answer(1, 1, "NON_BRAND", "首选团油", "[{\"name\":\"团油\",\"type\":\"TARGET\",\"recommended\":true,\"strength\":\"FIRST_CHOICE\"}]", "[]", null, "SUCCEEDED"),
+                answer(2, 1, "NON_BRAND", "团油排第四", "[{\"name\":\"团油\",\"type\":\"TARGET\",\"recommended\":true,\"rank\":4}]", "[]", null, "SUCCEEDED"));
+
+        JSONObject target = summarizer.buildSummary(answers, project, Map.of(), new JSONObject(), "v1")
+                .getJSONObject("dashboard").getJSONObject("total").getJSONArray("brands").getJSONObject(0);
+
+        assertEquals(List.of(0.5, 0.5, 4.0), List.of(target.getDouble("firstChoiceRate"), target.getDouble("top3Rate"), target.getDouble("averageRank")));
+    }
+
+    /** ⓪ 诊断大盘·被信任与被喜欢：情感、准确率、卖点只看点名问题；引用的分母是带来源的回答，判定失败的也计入，引用次数按条数累加。 */
+    @Test
+    void shouldComputeDashboardReputation() {
+        List<ReportAnswer> answers = answers();
+        answers.get(4).analysis().setDescriptionAccurate(true);
+        answers.get(4).analysis().setPoints("[{\"type\":\"SELLING_POINT_COVERED\",\"dimension\":\"加油优惠\",\"quote\":\"优惠多\"}]");
+        answers.get(5).analysis().setDescriptionAccurate(false);
+        answers.get(0).analysis().setSources("[" + source("https://tuanyou.com/a", "官网", "OWNED") + "," + source("https://tuanyou.com/b", "官网", "OWNED") + "]");
+        answers.get(1).analysis().setSources("[" + source("https://zhihu.com/q/2", "知乎", "OTHER") + "]");
+        answers.get(6).analysis().setSources("[" + source("https://mp.weixin.qq.com/s/1", "微信公众号", "PUBLISHED") + "]");
+
+        JSONObject reputation = summarizer.buildSummary(answers, project, Map.of(), new JSONObject(), "v1")
+                .getJSONObject("dashboard").getJSONObject("total").getJSONObject("reputation");
+
+        assertEquals(List.of(2, 1, 0, 1), List.of(reputation.getIntValue("sentimentAnswers"), reputation.getIntValue("positive"),
+                reputation.getIntValue("neutral"), reputation.getIntValue("negative")));
+        assertEquals(0.5, reputation.getDouble("positiveRate"));
+        assertEquals(0.5, reputation.getDouble("accurateRate"));
+        assertEquals(0.5, reputation.getDouble("sellingPointRate"));
+        // 3 条回答带来源：一条引用官网 2 次、一条只引用第三方、一条引用我方发布 1 次
+        assertEquals(List.of(3, 3), List.of(reputation.getIntValue("sourcedAnswers"), reputation.getIntValue("ownCitations")));
+        assertEquals(0.6667, reputation.getDouble("ownCitedRate"));
+        assertEquals(0.3333, reputation.getDouble("ownedRate"));
+    }
+
     /** @return 规则归类后的一条来源 JSON */
     private String source(String url, String platform, String sourceType) {
         return new JSONObject(true).fluentPut("url", url).fluentPut("title", "标题").fluentPut("platform", platform)
@@ -275,7 +375,11 @@ class ReportSummarizerTest {
         ReflectionTestUtils.setField(region, "reportCompetitorSummarizer", competitor);
         ReflectionTestUtils.setField(region, "reportBrandSummarizer", brand);
 
+        var dashboard = new ReportDashboardSummarizer();
+        ReflectionTestUtils.setField(dashboard, "resultRuleAnalyzer", ruleAnalyzer);
+
         var summarizer = new ReportSummarizer();
+        ReflectionTestUtils.setField(summarizer, "reportDashboardSummarizer", dashboard);
         ReflectionTestUtils.setField(summarizer, "resultRuleAnalyzer", ruleAnalyzer);
         ReflectionTestUtils.setField(summarizer, "diagnosisTaskSnapshots", new DiagnosisTaskSnapshots());
         ReflectionTestUtils.setField(summarizer, "reportOverviewSummarizer", overview);

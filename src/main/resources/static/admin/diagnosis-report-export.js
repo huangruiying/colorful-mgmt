@@ -1,7 +1,7 @@
 "use strict";
 /**
  * 诊断报告导出网页：把已完成报告连同证据与回答原文组装成可离线打开的独立网页并下载，各页签与系统中一样切换查看。
- * <p>内容与页面当前看到的一致，沿用模型筛选；页签内容由 DiagnosisReportView 渲染。页签与 ⑦ 地域子页签的切换、「看证据」「看回答」弹窗
+ * <p>内容与页面当前看到的一致，沿用模型筛选；页签内容由 DiagnosisReportView 渲染。页签与页签内子页签（⓪ 的视图与趋势指标、⑦ 的地域）的切换、「看证据」「看回答」弹窗
  * 由写入网页的 exportPageScript 完成，弹窗内容随网页一起导出，只导出正文引用到的证据与回答。</p>
  * <p>只负责组装与下载；导出按钮的状态和失败提示由报告页负责。</p>
  */
@@ -31,7 +31,7 @@
 
         // 2. 页签栏与各页签内容；查看入口是打开弹窗的链接，同时收集正文引用到的证据和回答
         const refs = {evidenceGroups:new Map(), resultIds:new Set()};
-        const context = {modelFilter, entries:buildExportEntries(refs)};
+        const context = {modelFilter, entries:buildExportEntries(refs), trend:report.dashboardTrend};
         appendExportTabs(context, documentNode, report.summary);
 
         // 3. 证据弹窗：每组「看证据」一个，内容与系统中的证据弹窗相同；证据里的回答也计入要导出的回答
@@ -151,7 +151,7 @@
     }
 
     /**
-     * 导出网页内置的脚本：点页签切换显示的内容；点 ⑦ 的地域子页签只切换同组内容；点「看证据」「看回答」打开对应弹窗，
+     * 导出网页内置的脚本：点页签切换显示的内容；点页签内的子页签只切换自己那一组的内容（子页签组可以套在另一组里）；点「看证据」「看回答」打开对应弹窗，
      * 点「返回报告」或弹窗外的遮罩关闭，弹窗可以叠开。
      * 只在导出的网页里运行，不在系统页面中调用；以源码形式写入网页，因此不引用本文件的其他变量（子页签切换与 DiagnosisReportView.selectSubtab 做同样的事）。
      */
@@ -168,8 +168,10 @@
             } else if (subtab) {
                 event.preventDefault();
                 const group = subtab.closest("[data-subtab-group]");
-                group.querySelectorAll("[data-subtab]").forEach(item => item.setAttribute("aria-selected", String(item === subtab)));
-                group.querySelectorAll("[data-subtab-panel]").forEach(content => { content.hidden = content.dataset.subtabPanel !== subtab.dataset.subtab; });
+                // 只处理直接属于这一组的子页签和内容，里层那组保持原样
+                const own = selector => [...group.querySelectorAll(selector)].filter(node => node.closest("[data-subtab-group]") === group);
+                own("[data-subtab]").forEach(item => item.setAttribute("aria-selected", String(item === subtab)));
+                own("[data-subtab-panel]").forEach(content => { content.hidden = content.dataset.subtabPanel !== subtab.dataset.subtab; });
             } else if (opener) {
                 event.preventDefault();
                 document.getElementById(opener.dataset.openDialog).showModal();
