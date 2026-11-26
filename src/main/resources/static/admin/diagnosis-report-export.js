@@ -151,12 +151,15 @@
     }
 
     /**
-     * 导出网页内置的脚本：点页签切换显示的内容；点页签内的子页签只切换自己那一组的内容（子页签组可以套在另一组里）；点「看证据」「看回答」打开对应弹窗，
+     * 导出网页内置的脚本：点页签切换显示的内容；点页签内的子页签只切换自己那一组的内容（子页签组可以套在另一组里）；
+     * 指标说明的小问号由浏览器原生开合，这里补上“点到别处收起”；点「看证据」「看回答」打开对应弹窗，
      * 点「返回报告」或弹窗外的遮罩关闭，弹窗可以叠开。
      * 只在导出的网页里运行，不在系统页面中调用；以源码形式写入网页，因此不引用本文件的其他变量（子页签切换与 DiagnosisReportView.selectSubtab 做同样的事）。
      */
     function exportPageScript() {
         document.addEventListener("click", event => {
+            // 点到别处（包括另一个小问号）时收起已展开的指标说明，同一时间只留一个；与页面上的做法相同
+            document.querySelectorAll(".report-help[open]").forEach(help => { if (!help.contains(event.target)) help.open = false; });
             const tab = event.target.closest("[data-export-tab]");
             const subtab = event.target.closest("[data-subtab]");
             const opener = event.target.closest("[data-open-dialog]");

@@ -3,7 +3,7 @@
 .report-tab { border:0; background:none; padding:10px 14px; color:#5a6f8a; font:inherit; font-size:14px; cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px; }
 .report-tab[aria-selected=true] { color:#245faa; border-bottom-color:#347de6; font-weight:600; }
 .report-section { margin-bottom:28px; }
-.report-section h3 { margin:0 0 6px; font-size:16px; }
+.report-section h3 { position:relative; margin:0 0 10px; font-size:16px; }
 .report-section > .help { margin:0 0 12px; }
 .report-table { min-width:640px; }
 .report-table td.metric, .report-table th.metric { text-align:right; white-space:nowrap; }
@@ -52,6 +52,7 @@
 .report-subtab { padding:6px 14px; border:1px solid #d5dfed; border-radius:999px; background:white; color:#4b5f79; font-size:14px; text-decoration:none; cursor:pointer; }
 .report-subtab[aria-selected=true] { border-color:#347de6; background:#eaf2fd; color:#245faa; font-weight:600; }
 .report-region-sample { margin:0 0 16px; }
+.report-attitude-answers { margin:0 0 16px; }
 .report-portrayal { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0 0 6px; color:#33465e; font-size:14px; }
 .report-portrayal-badge { padding:3px 12px; border-radius:999px; }
 .report-portrayal-positive { background:#eaf8ef; color:#247348; }
@@ -81,7 +82,7 @@
 .report-dashboard-stack-neutral { background:#a9c4f5; }
 .report-dashboard-stack-negative { background:#e5484d; }
 .report-dashboard-legend.report-dashboard-stack-legend { justify-content:flex-start; margin:0; font-size:13px; }
-.report-dashboard-card { display:flex; flex-direction:column; gap:6px; min-width:0; padding:18px 20px; border:1px solid #e0e7f1; border-radius:14px; background:white; }
+.report-dashboard-card { position:relative; display:flex; flex-direction:column; gap:6px; min-width:0; padding:18px 20px; border:1px solid #e0e7f1; border-radius:14px; background:white; }
 .report-dashboard-label { color:#5a6f8a; font-size:14px; }
 .report-dashboard-value { color:#1f6feb; font-size:30px; font-weight:700; line-height:1.2; }
 .report-dashboard-change { margin:0; min-height:1.5em; color:#8a98aa; font-size:13px; }
@@ -89,7 +90,8 @@
 .report-dashboard-worse { color:#1f9d63; }
 .report-dashboard-charts { display:grid; grid-template-columns:minmax(0,3fr) minmax(0,2fr); gap:16px; }
 .report-dashboard-panel { min-width:0; padding:18px 20px; border:1px solid #e0e7f1; border-radius:14px; background:white; }
-.report-dashboard-panel h3 { margin:0 0 4px; font-size:16px; }
+.report-dashboard-panel h3 { position:relative; margin:0 0 4px; font-size:16px; }
+.report-dashboard-panel > .report-dashboard-label { position:relative; }
 .report-dashboard-note { margin:0 0 8px; color:#5a6f8a; font-size:13px; }
 .report-dashboard-metrics { justify-content:flex-end; margin:-28px 0 8px; }
 .report-dashboard-metrics .report-subtab { padding:4px 12px; border-color:transparent; font-size:13px; }
@@ -106,6 +108,15 @@
 .report-dashboard-rank-primary .report-dashboard-rank-track i { background:#1f6feb; }
 .report-dashboard-rank-primary .report-dashboard-rank-value { color:#1f6feb; }
 @media(max-width:900px) { .report-dashboard-cards-5 { grid-template-columns:repeat(2,minmax(0,1fr)); } .report-dashboard-pair, .report-dashboard-charts { grid-template-columns:1fr; } .report-dashboard-metrics { justify-content:flex-start; margin-top:0; } }
+/* 指标说明的小问号：点开在下方浮出解释。用原生展开元素，导出网页里同样可用；浮层相对所在的标题、卡片定位，宽度不超过它们，不会被裁掉 */
+.report-help { display:inline-block; margin-left:6px; vertical-align:middle; font-size:13px; font-weight:400; }
+.report-help > summary { display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px; border:1px solid #b9c6d8; border-radius:50%; background:white; color:#73849b; font-size:11px; line-height:1; cursor:pointer; list-style:none; user-select:none; }
+.report-help > summary::-webkit-details-marker { display:none; }
+.report-help > summary:hover, .report-help[open] > summary { border-color:#347de6; background:#eaf2fd; color:#245faa; }
+.report-help-body { position:absolute; z-index:20; left:0; top:100%; margin-top:6px; padding:12px 14px; width:max-content; max-width:min(480px,100%); border:1px solid #d5dfed; border-radius:10px; background:white; box-shadow:0 8px 24px rgba(25,50,78,.16); color:#33465e; font-size:13px; font-weight:400; line-height:1.7; text-align:left; white-space:normal; }
+.report-help-body p { margin:0; }
+.report-help-body p + p { margin-top:6px; }
+.report-help-body strong { color:#19324e; font-weight:600; }
 /* 导出网页的版面：抬头与页签内容居中限宽，页签切换和弹窗与系统页面一致 */
 .report-export { max-width:1180px; margin:0 auto; padding:32px 24px 48px; background:white; }
 .report-export h1 { margin:0 0 8px; font-size:22px; }

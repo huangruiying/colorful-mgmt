@@ -6,6 +6,8 @@
  * <p>页签内的子页签（⓪ 的趋势指标、⑦ 的地域）是带 data-subtab 的链接，渲染时不绑定事件：页面用 selectSubtab 切换，导出网页由导出脚本切换。
  * 子页签可以套在另一组子页签里，切换只影响自己那一组。</p>
  * <p>⓪ 诊断大盘的折线图和柱状图用页面内 SVG 直接画：项目没有图表库，导出网页也要能脱网打开。</p>
+ * <p>指标的解释不常驻在页面上：区块标题和大盘卡片名称旁有小问号（helpBubble），点开才显示；每个指标只写一句，全报告共用（metricHelps）。
+ * 某份报告特有的情况（比如有几条没计入）仍直接显示。</p>
  * <p>只渲染、不发请求，也不读写页面上的其他元素。报告汇总由后端 domain/service/diagnosis/report 下的各生成类产出，
  * 各页签渲染函数注明了数据来源，字段含义以后端为准。</p>
  */
@@ -20,6 +22,91 @@
         CORRECT_INFORMATION:"纠正和统一信息", IMPROVE_ACCESS:"改善公开访问与检索", ADD_THIRD_PARTY:"补充第三方覆盖"};
     const evidenceStatusLabels = {ANSWER_STATED:"回答明确表达", INFERRED:"待验证推测"};
     const portrayalLabels = {POSITIVE:"正向", NEUTRAL:"中性", NEGATIVE:"负向", INSUFFICIENT:"证据不足"};
+    // ⑦ 一条回答凭目标的推荐强度计为正面或负面时的说法；凭点名题情感计入的另行拼写
+    const attitudeReasonLabels = {FIRST_CHOICE:"被首推", STRONG:"被强推", NOT_RECOMMENDED:"明确不推荐"};
+    // 指标的一句话解释，全报告共用一份：同一个指标在哪个页签点开小问号都是同一句话，大盘卡片的名称也取自这里。
+    // 措辞对照后端 content/summary 下各汇总类的实际算法写，改算法或加指标时一起改这里。
+    // 说法约定：“你”指报告分析的目标；“没点名的问题”即非品牌问题（只问品类或场景）；“直接问你的问题”即点名问题（问题里出现了目标名称）。
+    const metricHelps = Object.freeze({
+        judgedAnswers:["判定回答", "这个模型的回答里，判定模型读懂并给出结论的条数；这张表的其他各项只统计这些回答。"],
+        nonBrandAnswers:["非品牌回答", "没点名问你的问题（只问品类或场景）得到的回答数，是提及率、推荐率、首推率的分母。"],
+        mentionRate:["提及率", "用户没点名问你时（比如只问这类产品哪个好），回答里提到你的占比。"],
+        recommendRate:["推荐率", "同样是没点名的问题，回答明确推荐你的占比。提到不等于推荐。"],
+        firstChoiceRate:["首推率", "同样是没点名的问题，回答把你排在第一位、或明确说首选你的占比。"],
+        top3Rate:["前三率", "同样是没点名的问题，回答把你排进推荐的前三名的占比。"],
+        averageRank:["平均排名", "没点名的问题里，你被推荐且回答给了明确名次时，平均排第几；数字越小越靠前。"],
+        questionCoverage:["问题覆盖率", "没点名的问题里，至少有一次回答提到你的题占多少；一道题问了多次时，有一次提到就算。"],
+        stability:["稳定性", "同一道题问了多次时，结果一致（每次都提到你，或每次都没提到）的题占多少；每道题只问一次时没有这个数。"],
+        brandPositiveRate:["品牌正面率", "用户直接问你时，回答对你的总体评价是正面的占比。"],
+        recommendShare:["推荐份额", "没点名的问题和对比问题里，你和预设竞品一共被推荐的次数中，你占多少。"],
+        mentionShare:["品牌提及份额", "没点名的问题里，你和预设竞品一共被提到的次数中，你占多少。"],
+        brandAnswers:["点名回答", "直接问你的问题（问题里出现了你的名称）得到的回答数。"],
+        sentiment:["正面 / 中性 / 负面", "回答对你的总体评价属于哪一种，每条回答算一次。"],
+        accurateRate:["描述准确率", "用户直接问你时，回答对你的描述和项目资料相符的占比；资料没写到、判断不了对错的回答不算在内。"],
+        sellingPointRate:["卖点覆盖率", "用户直接问你时，回答提到了项目资料里的核心卖点（至少一个）的占比。"],
+        ownCitations:["我方内容被引用次数", "回答附的参考来源里，官网和我方发布内容一共出现了多少次。"],
+        ownCitedRate:["我方内容被引用率", "附了参考来源的回答里，引用了官网或我方发布内容的占比。"],
+        ownedRate:["官网引用率", "附了参考来源的回答里，引用了官网内容（官网域名下的页面）的占比。"],
+        publishedRate:["引用我方发布", "附了参考来源的回答里，引用了我方发布内容（链接和发布记录一致）的占比。"],
+        thirdPartyRate:["引用提到目标的第三方", "附了参考来源的回答里，引用了标题提到你的第三方内容的占比。"],
+        competitorRate:["引用提到竞品的内容", "附了参考来源的回答里，引用了标题提到预设竞品的内容的占比。"],
+        sourceCoverage:["来源覆盖率", "全部回答里，附了参考来源的占比。"]
+    });
+    const mergedDimensionHelp = "把意思相近的说法合并成一个维度后数次数；每个维度下面附回答原文，可以点「看回答」。";
+    // 各区块标题旁小问号里的内容：intro 说这块内容是什么、怎么来的；items 逐项解释表格的列，写指标键名的取自 metricHelps。
+    // 这里只放“这是什么”的解释；某份报告特有的情况（比如有几条没计入）由渲染函数直接显示在页面上，不放进问号。
+    const sectionHelps = Object.freeze({
+        sample:{intro:"只分析调用成功、而且没有因为太长被截断的回答。需要判定模型读懂回答才能算的指标，只统计判定成功的回答。", items:[
+            ["有效回答", "这次诊断里拿来分析的回答数。"],
+            ["判定成功 / 判定失败", "判定模型读每条回答并给出结论（提到了谁、推荐了谁、评价如何）；读不出结论的记为失败。"],
+            ["带来源回答", "附了可识别网址的参考来源的回答数。"],
+            ["实际联网回答", "有证据表明模型真的联网搜索了的回答数（有搜索记录、检索结果或引用）。"],
+            ["最大采样次数", "同一道题最多重复问了几次。"],
+            ["判定模型", "负责读回答并给出结论的模型，以及它用的提示词版本。"]]},
+        coreMetrics:{items:["judgedAnswers", "mentionRate", "recommendRate", "firstChoiceRate", "brandPositiveRate", "recommendShare"]},
+        keyFindings:{intro:"由模型根据规则发现的问题归纳出来的结论，和最该先做的三件事；每条都能点「看证据」核对。完整的建议在 ⑥ 优化建议。"},
+        visibility:{items:["nonBrandAnswers", "mentionRate", "recommendRate", "firstChoiceRate", "averageRank", "questionCoverage", "stability"]},
+        strength:{intro:"没点名的问题里，回答提到了你的时候是怎么推荐你的；每格是回答条数。提到不等于推荐得好：顺带一提、附带缺点都说明推荐得不够坚定。"
+            + "直接问你的问题和对比问题必然会提到你，不算在内。", items:[
+            ["首推", "把你作为首选推荐。"], ["强推", "强烈推荐你。"], ["并列", "把你和别的产品并列推荐。"],
+            ["顺带一提", "只是提了一下，没有展开推荐。"], ["附带缺点", "推荐了你，但同时指出了缺点。"], ["不推荐", "明确说不推荐你。"]]},
+        focus:{intro:mergedDimensionHelp},
+        brandModels:{items:["brandAnswers", "sentiment", "accurateRate", "sellingPointRate"]},
+        brandPoints:{intro:mergedDimensionHelp},
+        negativeSources:{intro:"直接问你的问题里，评价为负面的回答引用了哪些平台，用来决定去哪里处理。"},
+        factErrors:{intro:"直接问你的问题里，回答和项目资料对不上的描述；资料里没写的内容不判对错。"},
+        brandComparison:{intro:"把你和每个预设竞品放在同一批没点名的问题里比。对比问题本身点了竞品的名，不算在内。",
+            items:["mentionRate", "recommendRate", "firstChoiceRate"]},
+        headToHead:{intro:"只看同一条回答里你和某个竞品都被推荐、而且名次分得出先后的情况。", items:[
+            ["可比较的回答", "同一条回答里你和这个竞品都被推荐、名次有先后的回答数。"],
+            ["目标在前 / 竞品在前", "这些回答里谁的名次靠前。"],
+            ["同题胜率", "可比较的回答里，你排在前面的占比。"]]},
+        advantageScenes:{intro:"把没点名的问题按提问意图分组，只列出竞品被推荐的占比比你高的组合，用来看竞品强在哪类问题上。", items:[
+            ["回答数", "这个模型在这类意图下的回答数。"],
+            ["目标推荐率 / 竞品推荐率", "这些回答里，你和这个竞品各自被推荐的占比。"]]},
+        comparisonDimensions:{intro:mergedDimensionHelp + "分维度胜负只看对比问题：回答在某个维度上说你比竞品强记一次赢，弱记一次输，差不多记一次平。"},
+        candidates:{intro:"不在预设竞品里、但回答中出现过的同类产品，可以考虑加进竞品。", items:[
+            ["出现回答数", "有多少条回答提到了它。"], ["被推荐回答数", "其中有多少条回答推荐了它。"]]},
+        sourceModels:{intro:"回答附的参考来源里都有谁。各平台对“引用”的算法不同（有的是逐句引用，有的是打开过的网页或搜索到的结果），只适合在同类平台之间比较。", items:[
+            ["回答", "这个模型的全部有效回答数，判定失败的也算（来源归类不需要判定）。"],
+            ["带来源", "其中附了可识别网址的参考来源的回答数。"],
+            "sourceCoverage", ["引用官网", "ownedRate"], "publishedRate", "thirdPartyRate", "competitorRate"]},
+        sourcePlatforms:{intro:"每个模型引用得最多的平台，按次数从多到少，每个模型最多列 10 个。"},
+        ownLinks:{intro:"回答引用到的我方内容：官网域名下的页面，以及和发布记录一致的链接（按生成报告时的发布记录判断）。引用回答数是有多少条回答引用了它。"},
+        competitorLinks:{intro:"推荐了预设竞品的回答都引用了哪些内容，用来看竞品被推荐靠的是什么。"},
+        contentGaps:{intro:"没点名的问题里，回答强调的选择标准和提醒的顾虑。每一项列出有多少条回答提到它，其中多少条引用了官网或我方发布内容。"},
+        advice:{intro:"由模型根据下面「规则发现的问题」归纳。标着“待验证推测”的，原因或做法是推断出来的，动手前需要先核实。每条都能点「看证据」。"},
+        issues:{intro:"由程序按固定的门槛从 ②–⑤ 的结果里挑出来，不经过模型。上面的建议只能引用这里的编号，所以每条建议都能追到数字和原文。"},
+        portrayal:{intro:"这个地域的回答对你的态度。逐条回答判断：直接问你的问题看评价是正面、中性还是负面；其他问题里提到你时，被首推或强推算正面，明确不推荐算负面，其余算中性。"
+            + "结论：正面达到一半且负面不到两成为正向，负面达到三成为负向，其余为中性；有态度的回答不到 3 条时不下结论。"},
+        regionVisibility:{intro:"和 ②、④ 是同样的算法，只是范围缩小到这个地域的问题。",
+            items:["nonBrandAnswers", "mentionRate", "recommendRate", "firstChoiceRate", "averageRank", "questionCoverage", "stability"]},
+        opportunities:{intro:"由程序按固定规则从这个地域的回答里挑出来，不经过模型。下面的提升策略只能引用这里的编号。"},
+        strategy:{intro:"由模型根据上面的数据和机会归纳。标着「待验证推测」的，对当地市场、平台、渠道的判断是推断，动手前需要先核实。"},
+        sentimentShare:{intro:"用户直接问你时，回答对你的总体评价里，正面、中性、负面各占多少。"},
+        trend:{intro:"同一个方案历次诊断的变化，每个点是一次诊断。粗线是你，其余是提及份额最高的几个预设竞品。空心点表示那一次的题目或模型和上一次不同，前后不完全可比。"},
+        shareCompare:{intro:"没点名的问题里，你和每个预设竞品被提到的次数各占多少，从高到低排。「较上次」是和同一方案上一次诊断相比的变化，卡片上的「较上次」也是这个意思。"}
+    });
     const opportunityLabels = {COMPETITOR_OCCUPIED:"竞品占位", WHITE_SPACE:"空白题", MENTIONED_NOT_RECOMMENDED:"提到未推荐",
         NOT_FIRST_CHOICE:"推荐未首推", USER_FOCUS:"用户在意", PERCEPTION_GAP:"口碑改善", UNCOVERED_PLATFORM:"渠道空白"};
     // ⓪ 诊断大盘各条线的颜色：第一个给目标，其余依次给趋势图里的竞品
@@ -169,11 +256,11 @@
         const target = scope => scope.brands.find(brand => brand.target);
         const now = target(current.scope), before = previous ? target(previous.scope) : null;
         const cards = element("div", "report-dashboard-cards report-dashboard-cards-5");
-        cards.append(dashboardCard("提及率", percent(now.mentionRate), rateChange(now.mentionRate, before?.mentionRate)),
-            dashboardCard("首推率", percent(now.firstChoiceRate), rateChange(now.firstChoiceRate, before?.firstChoiceRate)),
-            dashboardCard("前三率", percent(now.top3Rate), rateChange(now.top3Rate, before?.top3Rate)),
-            dashboardCard("平均排名", now.averageRank == null ? "—" : now.averageRank.toFixed(2), rankChange(now.averageRank, before?.averageRank)),
-            dashboardCard("品牌提及份额", percent(now.mentionShare), rateChange(now.mentionShare, before?.mentionShare)));
+        cards.append(dashboardCard("mentionRate", percent(now.mentionRate), rateChange(now.mentionRate, before?.mentionRate)),
+            dashboardCard("firstChoiceRate", percent(now.firstChoiceRate), rateChange(now.firstChoiceRate, before?.firstChoiceRate)),
+            dashboardCard("top3Rate", percent(now.top3Rate), rateChange(now.top3Rate, before?.top3Rate)),
+            dashboardCard("averageRank", now.averageRank == null ? "—" : now.averageRank.toFixed(2), rankChange(now.averageRank, before?.averageRank)),
+            dashboardCard("mentionShare", percent(now.mentionShare), rateChange(now.mentionShare, before?.mentionShare)));
         const node = element("section", "report-dashboard-block");
         node.append(dashboardHeading("seen", "被看见", "声量与排名"), cards);
         return node;
@@ -188,17 +275,17 @@
     function renderDashboardTrust(current, previous) {
         const now = current.scope.reputation, before = previous?.scope.reputation;
         const cards = element("div", "report-dashboard-cards report-dashboard-cards-2");
-        cards.append(dashboardCard("我方内容被引用次数", now.ownCitations == null ? "—" : String(now.ownCitations), countChange(now.ownCitations, before?.ownCitations, "次")),
-            dashboardCard("我方内容被引用率", percent(now.ownCitedRate), rateChange(now.ownCitedRate, before?.ownCitedRate)),
-            dashboardCard("官网引用率", percent(now.ownedRate), rateChange(now.ownedRate, before?.ownedRate)),
-            dashboardCard("描述准确率", percent(now.accurateRate), rateChange(now.accurateRate, before?.accurateRate)));
+        cards.append(dashboardCard("ownCitations", now.ownCitations == null ? "—" : String(now.ownCitations), countChange(now.ownCitations, before?.ownCitations, "次")),
+            dashboardCard("ownCitedRate", percent(now.ownCitedRate), rateChange(now.ownCitedRate, before?.ownCitedRate)),
+            dashboardCard("ownedRate", percent(now.ownedRate), rateChange(now.ownedRate, before?.ownedRate)),
+            dashboardCard("accurateRate", percent(now.accurateRate), rateChange(now.accurateRate, before?.accurateRate)));
         const node = element("section", "report-dashboard-block");
         node.append(dashboardHeading("trust", "被信任", "信源与准确"), cards);
         return node;
     }
 
     /**
-     * 被喜欢 · 情感与卖点：点名问题的评价分布（正面、中性、负面的占比条），以及品牌正面率、卖点提及率两张卡。
+     * 被喜欢 · 情感与卖点：点名问题的评价分布（正面、中性、负面的占比条），以及品牌正面率、卖点覆盖率两张卡。
      * @param {{scope:object}} current 本报告的点
      * @param {{scope:object}|null} previous 上一次任务的点，没有时为 null
      * @return {HTMLElement} 这一段
@@ -206,7 +293,9 @@
     function renderDashboardFavor(current, previous) {
         const now = current.scope.reputation, before = previous?.scope.reputation;
         const box = element("div", "report-dashboard-panel");
-        box.append(element("p", "report-dashboard-label", "品牌情感分布"));
+        const sentimentLabel = element("div", "report-dashboard-label", "品牌情感分布");
+        sentimentLabel.append(helpBubble(sectionHelps.sentimentShare));
+        box.append(sentimentLabel);
         if (now.sentimentAnswers) {
             const bar = element("div", "report-dashboard-stack"), legend = element("div", "report-dashboard-legend report-dashboard-stack-legend");
             for (const [tone, label, count] of [["positive", "正面", now.positive], ["neutral", "中性", now.neutral], ["negative", "负面", now.negative]]) {
@@ -222,8 +311,8 @@
             box.append(element("p", "report-empty", "暂无数据"));
         }
         const cards = element("div", "report-dashboard-cards report-dashboard-cards-2");
-        cards.append(dashboardCard("品牌正面率", percent(now.positiveRate), rateChange(now.positiveRate, before?.positiveRate)),
-            dashboardCard("卖点提及率", percent(now.sellingPointRate), rateChange(now.sellingPointRate, before?.sellingPointRate)));
+        cards.append(dashboardCard("brandPositiveRate", percent(now.positiveRate), rateChange(now.positiveRate, before?.positiveRate)),
+            dashboardCard("sellingPointRate", percent(now.sellingPointRate), rateChange(now.sellingPointRate, before?.sellingPointRate)));
         const node = element("section", "report-dashboard-block");
         node.append(dashboardHeading("favor", "被喜欢", "情感与卖点"), box, cards);
         return node;
@@ -246,7 +335,7 @@
         const place = 1 + ranked.filter(brand => (brand.mentionShare ?? -1) > (now.mentionShare ?? -1)).length;
         const hasShare = now.mentionShare != null;
         const shareItems = ranked.map(brand => ({label:brand.brandName, value:brand.mentionShare ?? 0, text:percent(brand.mentionShare), primary:brand.target}));
-        const compare = dashboardPanel("竞品对比 · 品牌提及份额", null,
+        const compare = dashboardPanel("竞品对比 · 品牌提及份额", sectionHelps.shareCompare,
             !hasShare ? element("p", "report-empty", "暂无数据") : shareItems.length > DASHBOARD_COLUMN_LIMIT ? rankBars(shareItems) : barChart(shareItems, true));
         if (hasShare) {
             const note = element("p", "report-dashboard-note", "我的品牌：第 " + place + " 名 · " + percent(now.mentionShare));
@@ -260,24 +349,47 @@
         const brandNames = [now.brandName, ...ranked.filter(brand => !brand.target).slice(0, DASHBOARD_COLORS.length - 1).map(brand => brand.brandName)];
         const seriesOf = metric => brandNames.map((name, index) => ({name, primary:index === 0, color:DASHBOARD_COLORS[index % DASHBOARD_COLORS.length],
             values:points.map(point => point.scope.brands.find(brand => brand.brandName === name)?.[metric] ?? null)}));
-        const trend = dashboardPanel("品牌趋势", null, dashboardMetricTabs("dashboard-trend",
+        const trend = dashboardPanel("品牌趋势", sectionHelps.trend, dashboardMetricTabs("dashboard-trend",
             [["mentionRate", "提及率"], ["firstChoiceRate", "首推率"], ["top3Rate", "前三率"], ["averageRank", "平均排名"]],
             metric => lineChart(points, labels, seriesOf(metric), metric === "averageRank")));
         return [trend, compare];
     }
 
     /**
-     * 大盘的一张指标卡：指标名、大号数字，以及可选的「较上次」。
-     * @param {string} label 指标名
+     * 大盘的一张指标卡：指标名加小问号、大号数字，以及可选的「较上次」。
+     * @param {string} metric 指标键名，名称和小问号里的解释都取自 metricHelps，保证与其他页签同名同义
      * @param {string} value 已格式化的数值，没有数据时为“—”
      * @param {HTMLElement|null} change 「较上次」一行，没有可比数据时为 null
      * @return {HTMLElement} 指标卡
      */
-    function dashboardCard(label, value, change) {
-        const card = element("div", "report-dashboard-card");
-        card.append(element("span", "report-dashboard-label", label), element("strong", "report-dashboard-value", value));
+    function dashboardCard(metric, value, change) {
+        const card = element("div", "report-dashboard-card"), label = element("div", "report-dashboard-label", metricHelps[metric][0]);
+        label.append(helpBubble(metricHelps[metric][1]));
+        card.append(label, element("strong", "report-dashboard-value", value));
         if (change) card.append(change);
         return card;
+    }
+    /**
+     * 指标说明的小问号：点开在下方浮出解释，再点一下收起。
+     * 用浏览器原生的展开元素，渲染时不绑定事件，页面和导出网页都能开合；“点到别处收起”由页面脚本和导出网页内置脚本各补一条。
+     * @param {string|{intro?:string, items?:Array<string|[string,string]>}} help 解释内容：一句话；或一段说明加逐项解释。
+     *     items 里写指标键名的取 metricHelps 的名称和解释；写成 [名称, 指标键名] 的沿用该指标的解释、换个名称（列名与指标名不同时用）；
+     *     写成 [名称, 文字] 的直接使用
+     * @return {HTMLElement} 小问号
+     */
+    function helpBubble(help) {
+        const node = element("details", "report-help"), mark = element("summary", null, "?"), body = element("div", "report-help-body");
+        mark.setAttribute("aria-label", "查看说明");
+        const content = typeof help === "string" ? {intro:help} : help;
+        if (content.intro) body.append(element("p", null, content.intro));
+        for (const item of content.items || []) {
+            const [name, text] = typeof item === "string" ? metricHelps[item] : [item[0], metricHelps[item[1]]?.[1] || item[1]];
+            const line = element("p");
+            line.append(element("strong", null, name), "：" + text);
+            body.append(line);
+        }
+        node.append(mark, body);
+        return node;
     }
 
     /**
@@ -332,17 +444,16 @@
     }
 
     /**
-     * 大盘里带标题的一块图表区。
+     * 大盘里带标题的一块图表区，标题旁带小问号。
      * @param {string} title 标题
-     * @param {string|null} note 标题下的一行说明，没有时为 null
+     * @param {object} help 小问号里的解释，见 helpBubble
      * @param {HTMLElement|SVGElement} content 图表或提示
      * @return {HTMLElement} 图表区
      */
-    function dashboardPanel(title, note, content) {
-        const node = element("div", "report-dashboard-panel");
-        node.append(element("h3", null, title));
-        if (note) node.append(element("p", "report-dashboard-note", note));
-        node.append(content);
+    function dashboardPanel(title, help, content) {
+        const node = element("div", "report-dashboard-panel"), heading = element("h3", null, title);
+        heading.append(helpBubble(help));
+        node.append(heading, content);
         return node;
     }
 
@@ -510,6 +621,8 @@
 
     /**
      * ① 诊断概览：样本说明、各模型核心指标、主要发现与前三条优先行动。
+     * 样本说明里，方案标为品牌认知但问的不是目标（sample.offTargetBrandAnswers）、标为竞品比较但问题里没有目标（sample.offTargetComparisonAnswers）的回答，
+     * 大于 0 时各单列一项，并写明它们怎么统计。
      * 数据：sample、models 由 ReportOverviewSummarizer 生成；主要发现与行动来自 advice（AdviceGenerator）与 issues（ReportIssueSummarizer）。
      * @param {object} context 模型筛选与查看入口，见 renderTab
      * @param {HTMLElement} panel 内容写入的容器
@@ -518,19 +631,27 @@
     function renderOverview(context, panel, summary) {
         const sample = summary.sample, judge = sample.judgeChannel || {};
         const grid = element("div", "task-overview");
+        // 方案里的标记和问题原文对不上的回答：有的时候才列出条数，并在说明里写清它们怎么统计，不悄悄处理；早期报告没有这两个数
+        const offBrand = sample.offTargetBrandAnswers || 0, offComparison = sample.offTargetComparisonAnswers || 0;
+        const offTarget = [...(offBrand ? [["问的不是目标的品牌认知题回答", offBrand]] : []),
+            ...(offComparison ? [["问题里没有目标的竞品比较题回答", offComparison]] : [])];
         for (const [label, value] of [["有效回答", sample.validAnswers], ["判定成功", sample.judged], ["判定失败", sample.judgeFailed],
             ["带来源回答", sample.withSources], ["实际联网回答", sample.searched], ["模型数", sample.models], ["题数", sample.questions],
-            ["最大采样次数", sample.maxRepeat], ["判定模型", (judge.channelName || "—") + " · " + (judge.modelName || "—") + " · 提示词 " + (sample.promptVersion || "—")]]) {
+            ["最大采样次数", sample.maxRepeat], ...offTarget,
+            ["判定模型", (judge.channelName || "—") + " · " + (judge.modelName || "—") + " · 提示词 " + (sample.promptVersion || "—")]]) {
             const item = element("div");
             item.append(element("span", null, label), element("strong", null, String(value ?? "—")));
             grid.append(item);
         }
-        panel.append(section("样本说明", "只分析成功且未被截断的回答；依赖判定的指标只统计判定成功的回答。", grid));
-        panel.append(section("各模型核心指标", "提及率、推荐率、首推率按非品牌问题计算；品牌正面率按点名问题计算；推荐份额 = 目标被推荐次数 ÷（目标 + 预设竞品被推荐次数）。",
+        // 这份报告特有的情况直接显示在页面上，不收进小问号
+        const offTargetNote = (offBrand ? "有 " + offBrand + " 条回答的问题在方案里标为品牌认知，但问的不是目标，不计入 ③ 品牌认知。" : "")
+            + (offComparison ? "有 " + offComparison + " 条回答的问题标为竞品比较，但问题里没有目标：其中的维度胜负只计入明确说到目标的，其余照常统计。" : "");
+        panel.append(section("样本说明", sectionHelps.sample, ...(offTargetNote ? [element("p", "help", offTargetNote)] : []), grid));
+        panel.append(section("各模型核心指标", sectionHelps.coreMetrics,
             table(["模型", "判定回答", "提及率", "推荐率", "首推率", "品牌正面率", "推荐份额"], ofModel(context, summary.models).map(model => [
                 model.channelName + " · " + model.modelName, model.judgedAnswers, percent(model.mentionRate), percent(model.recommendRate),
                 percent(model.firstChoiceRate), percent(model.brandPositiveRate), percent(model.recommendShare)]))));
-        panel.append(section("主要发现与优先行动", "由模型根据规则发现的问题归纳，每条都可以点「看证据」核对；完整内容见 ⑥ 优化建议。", renderKeyFindings(context, summary)));
+        panel.append(section("主要发现与优先行动", sectionHelps.keyFindings, renderKeyFindings(context, summary)));
     }
 
     /**
@@ -560,23 +681,24 @@
      * @param {object} summary 报告汇总
      */
     function renderVisibility(context, panel, summary) {
-        panel.append(section("可见度（非品牌问题）", "问题覆盖率：至少有一次提到目标的题数占比；稳定性：同一题多次采样中提及结果一致的题数占比。",
+        panel.append(section("可见度（非品牌问题）", sectionHelps.visibility,
             table(["模型", "非品牌回答", "提及率", "推荐率", "首推率", "平均排名", "问题覆盖率", "稳定性"], ofModel(context, summary.models).map(model => [
                 model.channelName + " · " + model.modelName, model.nonBrandAnswers, percent(model.mentionRate), percent(model.recommendRate),
                 percent(model.firstChoiceRate), model.averageRank ?? "—", percent(model.questionCoverage), percent(model.stability)]))));
         const strengthKeys = Object.keys(strengthLabels);
-        panel.append(section("推荐强度（非品牌问题中提到目标时）", "提到不等于推荐得好：顺带一提、附带缺点都说明推荐不够坚定。点名与对比问题必然提到目标，不计入。",
+        panel.append(section("推荐强度（非品牌问题中提到目标时）", sectionHelps.strength,
             table(["模型", ...strengthKeys.map(key => strengthLabels[key])], ofModel(context, summary.strength).map(row => [
                 row.channelName, ...strengthKeys.map(key => row.distribution[key] || 0)]))));
         const lists = element("div", "report-dimensions");
         lists.append(dimensionList(context, "目标的保留意见", "被推荐时附带的缺点，是要补的短板", summary.reservations),
             dimensionList(context, "用户选择标准", "未提到目标的回答强调了什么", summary.criteria),
             dimensionList(context, "用户顾虑", "未提到目标的回答提醒了什么", summary.concerns));
-        panel.append(section("推荐理由与用户关注点", "按归一后的维度统计次数，附回答原文。", lists));
+        panel.append(section("推荐理由与用户关注点", sectionHelps.focus, lists));
     }
 
     /**
      * ③ 品牌认知：只看点名问题，模型怎么评价目标、描述对不对、负面来自哪里、卖点说没说到。
+     * 没有任何真正问目标的回答、且方案里标为品牌认知的题问的不是目标时，先用一段话说明这一页为什么是空的。
      * 数据：summary.brand，由 ReportBrandSummarizer 生成。
      * @param {object} context 模型筛选与查看入口，见 renderTab
      * @param {HTMLElement} panel 内容写入的容器
@@ -584,7 +706,12 @@
      */
     function renderBrand(context, panel, summary) {
         const brand = summary.brand;
-        panel.append(section("各模型评价（点名问题）", "情感按回答计数；描述准确率只统计判定给出了对错的回答，依据是项目资料；卖点覆盖率 = 至少说到一个核心卖点的回答占比。",
+        // 一条真正问目标的回答都没有、而方案里标为品牌认知的题问的是别的品牌时，直接说明为什么这一页是空的
+        if (!brand.models.length && summary.sample.offTargetBrandAnswers) {
+            panel.append(element("div", "report-progress", "这次诊断没有直接问到目标的问题，所以没有品牌认知数据。方案里标为品牌认知的 "
+                + summary.sample.offTargetBrandAnswers + " 条回答，问题问的都不是目标（比如只问某个竞品）。在方案里加上直接问目标的问题并重新诊断后，这里才有内容。"));
+        }
+        panel.append(section("各模型评价（点名问题）", sectionHelps.brandModels,
             table(["模型", "点名回答", "正面", "中性", "负面", "描述准确率", "卖点覆盖率"], ofModel(context, brand.models).map(model => [
                 model.channelName + " · " + model.modelName, model.brandAnswers, model.positive, model.neutral, model.negative,
                 percent(model.accurateRate), percent(model.sellingPointRate)]))));
@@ -592,15 +719,16 @@
         lists.append(dimensionList(context, "正面点", "继续强化的优势", brand.positives),
             dimensionList(context, "负面点", "需要回应或纠正", brand.negatives),
             dimensionList(context, "提到的卖点", "模型已经知道的核心卖点", brand.sellingPoints));
-        panel.append(section("正面点、负面点与卖点", "按归一后的维度统计次数，附回答原文。", lists));
-        panel.append(section("负面来源", "判定为负面的点名回答引用了哪些平台，决定去哪里处理。", table(["平台", "引用次数", "链接示例"],
+        panel.append(section("正面点、负面点与卖点", sectionHelps.brandPoints, lists));
+        panel.append(section("负面来源", sectionHelps.negativeSources, table(["平台", "引用次数", "链接示例"],
             brand.negativeSources.map(row => [row.platform, row.count, row.links.map(link => link.title || link.url).join("；")]), 1)));
-        panel.append(section("错误信息清单", "与项目资料不符的描述，资料没写的内容不判对错。", quoteList(context, ofModel(context, brand.factErrors).map(error => ({
+        panel.append(section("错误信息清单", sectionHelps.factErrors, quoteList(context, ofModel(context, brand.factErrors).map(error => ({
             title:error.content, quote:error.quote, channelName:error.channelName, resultId:error.resultId})))));
     }
 
     /**
      * ④ 竞品对比：目标与预设竞品同口径比较，再看同题先后、竞品强在哪些场景、对比维度谁赢。
+     * 分维度胜负只计入确实在说目标的结果；没有计入的条数（competitor.excludedDimensionResults）大于 0 时写在该栏说明里。
      * 数据：summary.competitor，由 ReportCompetitorSummarizer 生成。
      * @param {object} context 模型筛选与查看入口，见 renderTab
      * @param {HTMLElement} panel 内容写入的容器
@@ -608,23 +736,26 @@
      */
     function renderCompetitor(context, panel, summary) {
         const competitor = summary.competitor;
-        panel.append(section("目标与竞品（非品牌问题）", "与 ② 的口径相同，分母为该模型的非品牌回答；对比问题点了竞品的名，不计入提及率。",
+        panel.append(section("目标与竞品（非品牌问题）", sectionHelps.brandComparison,
             table(["模型", "品牌", "提及率", "推荐率", "首推率"], ofModel(context, competitor.brands).map(row => [
                 row.channelName + " · " + row.modelName, row.brandName + (row.target ? "（目标）" : ""),
                 percent(row.mentionRate), percent(row.recommendRate), percent(row.firstChoiceRate)]), 2)));
-        panel.append(section("同题胜率", "同一条回答里目标和竞品都被推荐且都有排名时，目标排在前面的占比。",
+        panel.append(section("同题胜率", sectionHelps.headToHead,
             table(["模型", "竞品", "可比较的回答", "目标在前", "竞品在前", "同题胜率"], ofModel(context, competitor.headToHead).map(row => [
                 row.channelName + " · " + row.modelName, row.competitor, row.sameAnswers, row.targetAhead, row.competitorAhead, percent(row.winRate)]), 2)));
-        panel.append(section("竞品的优势场景", "按问题意图拆分非品牌问题，只列出竞品推荐率高于目标的组合。",
+        panel.append(section("竞品的优势场景", sectionHelps.advantageScenes,
             table(["模型", "问题意图", "竞品", "回答数", "目标推荐率", "竞品推荐率"], ofModel(context, competitor.advantageScenes).map(row => [
                 row.channelName, intentLabels[row.intent] || row.intent, row.competitor, row.answers,
                 percent(row.targetRecommendRate), percent(row.competitorRecommendRate)]), 3)));
         const lists = element("div", "report-dimensions");
-        lists.append(dimensionList(context, "分维度胜负（对比问题）", "目标相对竞品在各维度上的结果", competitor.dimensions,
+        // 问题里没有目标的对比题里，说的是竞品之间谁强谁弱的胜负不记到目标头上；有这种情况时写明条数
+        const excluded = competitor.excludedDimensionResults || 0;
+        lists.append(dimensionList(context, "分维度胜负（对比问题）", "目标相对竞品在各维度上的结果"
+                + (excluded ? "。另有 " + excluded + " 条胜负比较的是竞品之间，没有说到目标，未计入" : ""), competitor.dimensions,
                 row => "赢 " + row.win + " · 输 " + row.lose + " · 平 " + row.tie),
             dimensionList(context, "竞品被推荐的理由", "只取回答里明确写出的理由", competitor.competitorReasons));
-        panel.append(section("对比维度与竞品理由", "按归一后的维度统计，附回答原文。", lists));
-        panel.append(section("新出现的同类产品", "不在预设竞品里、回答中出现过的产品，可考虑加入竞品。",
+        panel.append(section("对比维度与竞品理由", sectionHelps.comparisonDimensions, lists));
+        panel.append(section("新出现的同类产品", sectionHelps.candidates,
             table(["产品", "出现回答数", "被推荐回答数"], competitor.candidates.map(row => [row.name, row.mentions, row.recommended]))));
     }
 
@@ -637,21 +768,21 @@
      */
     function renderSource(context, panel, summary) {
         const source = summary.source;
-        panel.append(section("各模型来源情况", "来源覆盖率 = 带来源回答 ÷ 全部回答；各类引用率的分母为带来源回答。各平台“引用”含义不同，只在同类平台之间比较。",
+        panel.append(section("各模型来源情况", sectionHelps.sourceModels,
             table(["模型", "回答", "带来源", "来源覆盖率", "引用官网", "引用我方发布", "引用提到目标的第三方", "引用提到竞品的内容"], ofModel(context, source.models).map(model => [
                 model.channelName + " · " + model.modelName, model.answers, model.withSources, percent(model.sourceCoverage),
                 percent(model.ownedRate), percent(model.publishedRate), percent(model.thirdPartyRate), percent(model.competitorRate)]))));
-        panel.append(section("各模型常引用的平台", "按被引用次数排序，每个模型最多 10 个。", table(["模型", "平台", "引用次数"],
+        panel.append(section("各模型常引用的平台", sectionHelps.sourcePlatforms, table(["模型", "平台", "引用次数"],
             ofModel(context, source.platforms).flatMap(row => row.platforms.map(platform => [row.channelName, platform.platform, platform.count])), 2)));
-        panel.append(section("被引用的我方链接", "官网域名下的页面，以及与发布记录一致的链接；按生成报告时的发布记录判断。",
+        panel.append(section("被引用的我方链接", sectionHelps.ownLinks,
             table(["链接", "标题", "类型", "引用回答数"], source.ownLinks.map(link => [link.url, link.title || "—", sourceTypeLabels[link.sourceType] || link.sourceType, link.count]), 3)));
-        panel.append(section("竞品的来源", "推荐了预设竞品的回答引用了哪些内容，看竞品被推荐靠的是什么。",
+        panel.append(section("竞品的来源", sectionHelps.competitorLinks,
             table(["链接", "标题", "平台", "类型", "引用回答数"], source.competitorLinks.map(link => [link.url, link.title || "—", link.platform || "—",
                 sourceTypeLabels[link.sourceType] || link.sourceType, link.count]), 4)));
         const gaps = element("div", "report-dimensions");
         gaps.append(dimensionList(context, "用户关心的方向", "引用我方为 0 的方向，说明我方内容没被用上（可能没有、不公开或不好找），需要人工确认",
             source.contentGaps, row => "提到 " + row.answers + " 条 · 引用我方 " + row.ownCitedAnswers + " 条"));
-        panel.append(section("内容差距", "非品牌问题中回答强调的选择标准和用户顾虑，相关回答有没有引用官网或我方发布内容。", gaps));
+        panel.append(section("内容差距", sectionHelps.contentGaps, gaps));
     }
 
     /**
@@ -668,7 +799,7 @@
             if (!advice.actions.length) actions.append(element("p", "report-empty", "暂无"));
             advice.actions.forEach((action, index) => actions.append(adviceItem(context, (index + 1) + ". " + action.title,
                 categoryLabels[action.category] + " · " + evidenceStatusLabels[action.evidenceStatus], action.content, action.issueIds)));
-            panel.append(section("优化建议（按优先级）", "由模型根据下方规则发现的问题归纳；“待验证推测”表示原因或做法是推断，需要先核实。", actions));
+            panel.append(section("优化建议（按优先级）", sectionHelps.advice, actions));
             const findings = element("div", "report-dimension-list");
             if (!advice.findings.length) findings.append(element("p", "report-empty", "暂无"));
             for (const finding of advice.findings) findings.append(adviceItem(context, finding.content, null, null, finding.issueIds));
@@ -681,7 +812,7 @@
         const visibleIssues = summary.issues.filter(issue => !context.modelFilter || issue.channelId == null || String(issue.channelId) === context.modelFilter);
         if (!visibleIssues.length) issues.append(element("p", "report-empty", "暂无"));
         for (const issue of visibleIssues) issues.append(adviceItem(context, issue.id + " " + issue.title, metricsText(issue.metrics), null, [issue.id]));
-        panel.append(section("规则发现的问题", "由程序按固定阈值从 ②–⑤ 的结果中挑出，不经过模型；建议只能引用这里的编号。", issues));
+        panel.append(section("规则发现的问题", sectionHelps.issues, issues));
         panel.append(section("复测方式", null, element("p", "help",
             "按建议调整后，用同一诊断方案（原问题、原渠道配置）重新执行诊断任务并生成报告；判定模型与提示词版本一致时，再与本报告对比。")));
     }
@@ -731,23 +862,23 @@
         const sample = region.sample;
         container.append(element("p", "help report-region-sample", region.name + " · 有效回答 " + sample.validAnswers + " 条（判定成功 " + sample.judged
             + " 条）· 题数 " + sample.questions + " · 模型数 " + sample.models));
-        container.append(section("1 宣传状态", "计入有态度的回答：点名题里有品牌情感的，以及其他题里提到目标且有推荐强度的；首推、强推算正面，明确不推荐算负面，其余算中性。"
-            + "正面 ≥ 50% 且负面 < 20% 为正向，负面 ≥ 30% 为负向，少于 3 条为证据不足。", renderPortrayal(context, region.portrayal)));
-        container.append(section("2 大模型可见度（非品牌问题）", "口径与 ① ④ 相同，范围只含该地域的问题。", renderRegionVisibility(context, region.visibility)));
+        container.append(section("1 宣传状态", sectionHelps.portrayal, renderPortrayal(context, region.portrayal)));
+        container.append(section("2 大模型可见度（非品牌问题）", sectionHelps.regionVisibility, renderRegionVisibility(context, region.visibility)));
         const opportunities = element("div", "report-dimension-list");
         if (!region.opportunities.length) opportunities.append(element("p", "report-empty", "暂无"));
         for (const item of region.opportunities) {
             opportunities.append(adviceItem(context, item.id + " " + item.title, (opportunityLabels[item.type] || item.type) + " · " + metricsText(item.metrics), null, [item.id]));
         }
-        container.append(section("3 机会", "由程序按固定规则从该地域的回答中挑出，不经过模型；提升策略只能引用这里的编号。", opportunities));
-        container.append(section("4 提升策略", "由模型根据上面的数据和机会归纳；「待验证推测」表示对当地市场、平台、渠道的判断是推断，需要先核实。",
-            renderRegionStrategy(context, region.strategy)));
+        container.append(section("3 机会", sectionHelps.opportunities, opportunities));
+        container.append(section("4 提升策略", sectionHelps.strategy, renderRegionStrategy(context, region.strategy)));
     }
 
     /**
      * 地域的宣传状态：结论、正中负回答数，以及正面、负面证据。
+     * 正面、负面证据各先列出计数对应的回答（是哪几条、凭什么计入），再给评价与理由的维度排行；
+     * 计数里既有点名题（看情感）也有其他题（看推荐强度），而评价排行只来自点名题，所以两者要分开看。
      * @param {object} context 模型筛选与查看入口，见 renderTab
-     * @param {object} portrayal 宣传状态：status、正中负计数与占比、各维度排行、factErrors、negativeSources
+     * @param {object} portrayal 宣传状态：status、正中负计数与占比、positiveAnswers 与 negativeAnswers（早期报告没有）、各维度排行、factErrors、negativeSources
      * @return {HTMLElement} 宣传状态内容
      */
     function renderPortrayal(context, portrayal) {
@@ -758,17 +889,40 @@
                 + " 条（正面占比 " + percent(portrayal.positiveRate) + "，负面占比 " + percent(portrayal.negativeRate) + "）"));
         box.append(line);
         const positives = element("div", "report-dimensions report-dimensions-2");
-        positives.append(dimensionList(context, "正面评价", "点名问题中对目标的正面评价", portrayal.positives),
+        positives.append(dimensionList(context, "点名问题里的正面评价", "直接问到目标时，回答对目标的正面评价", portrayal.positives),
             dimensionList(context, "推荐理由", "推荐目标时给出的理由", portrayal.recommendReasons));
         const negatives = element("div", "report-dimensions report-dimensions-2");
-        negatives.append(dimensionList(context, "负面评价", "点名问题中对目标的负面评价", portrayal.negatives),
+        negatives.append(dimensionList(context, "点名问题里的负面评价", "直接问到目标时，回答对目标的负面评价", portrayal.negatives),
             dimensionList(context, "保留意见", "推荐目标时附带的缺点", portrayal.reservations));
-        box.append(element("h4", null, "正面证据"), positives, element("h4", null, "负面证据"), negatives);
+        box.append(element("h4", null, "正面证据"), ...attitudeAnswers(context, "正面", portrayal.positive, portrayal.positiveAnswers), positives,
+            element("h4", null, "负面证据"), ...attitudeAnswers(context, "负面", portrayal.negative, portrayal.negativeAnswers), negatives);
         box.append(element("h4", null, "错误信息"), quoteList(context, ofModel(context, portrayal.factErrors).map(error => ({
             title:error.content, quote:error.quote, channelName:error.channelName, resultId:error.resultId}))));
         box.append(element("h4", null, "负面回答引用的平台"), table(["平台", "引用次数", "链接示例"],
             portrayal.negativeSources.map(row => [row.platform, row.count, row.links.map(link => link.title || link.url).join("；")]), 1));
         return box;
+    }
+
+    /**
+     * 计为正面或负面的回答清单：逐条写出问题、模型和计入原因，带「看回答」，用来核对上面的计数。
+     * 清单是全部模型合计，不随模型筛选变化，与计数保持一致。
+     * @param {object} context 模型筛选与查看入口，见 renderTab
+     * @param {string} attitude 态度的叫法：正面 或 负面
+     * @param {number} total 该态度的回答总数
+     * @param {Array<{resultId:number, channelName:string, question:string, reason:string}>|undefined} answers
+     *     对应的回答，后端最多给 20 条；早期报告没有这份清单
+     * @return {HTMLElement[]} 清单卡片；没有清单或清单为空时返回空数组，页面不出现这一块
+     */
+    function attitudeAnswers(context, attitude, total, answers) {
+        if (!answers?.length) return [];
+        const box = element("div", "report-dimension-list report-attitude-answers");
+        box.append(element("h4", null, "计为" + attitude + "的回答（" + (total > answers.length ? "共 " + total + " 条，列出前 " + answers.length + " 条" : total + " 条") + "）"));
+        for (const answer of answers) {
+            // 点名题凭判定给出的情感计入，其他题凭目标的推荐强度计入
+            const reason = answer.reason === "BRAND_SENTIMENT" ? "点名题评价为" + attitude : attitudeReasonLabels[answer.reason] || answer.reason;
+            box.append(answerLine(context, "问题：" + answer.question + " — " + answer.channelName + " · " + reason, answer.resultId));
+        }
+        return [box];
     }
 
     /**
@@ -971,17 +1125,17 @@
     }
 
     /**
-     * 带标题和说明的一段内容。
+     * 带标题的一段内容；这块内容是什么、各列什么意思，收在标题旁的小问号里，不常驻在页面上。
+     * 某份报告特有的情况（比如有几条没计入）不放进小问号，由调用方作为正文的第一段传入。
      * @param {string} title 标题
-     * @param {string|null} help 标题下的说明，没有时为 null
+     * @param {object|null} help 小问号里的解释，见 helpBubble；没有时为 null，标题旁不出现小问号
      * @param {...HTMLElement} children 正文
      * @return {HTMLElement} 段落
      */
     function section(title, help, ...children) {
-        const node = element("section", "report-section");
-        node.append(element("h3", null, title));
-        if (help) node.append(element("p", "help", help));
-        node.append(...children);
+        const node = element("section", "report-section"), heading = element("h3", null, title);
+        if (help) heading.append(helpBubble(help));
+        node.append(heading, ...children);
         return node;
     }
 

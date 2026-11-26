@@ -451,6 +451,10 @@
     byId("close-evidence").addEventListener("click", () => evidenceDialog.close());
     byId("export-report-html").addEventListener("click", exportReportHtml);
     byId("report-model-filter").addEventListener("change", event => { modelFilter = event.target.value; renderPanel(); });
+    // 指标说明的小问号由浏览器原生展开和收起；这里只补一条：点到别处（包括另一个小问号）时收起已展开的说明，同一时间只留一个
+    document.addEventListener("click", event => {
+        document.querySelectorAll(".report-help[open]").forEach(help => { if (!help.contains(event.target)) help.open = false; });
+    });
     // 子页签是渲染出的链接，点击只切换同组的内容，并按组记住所选项
     byId("report-panel").addEventListener("click", event => {
         const subtab = event.target.closest("[data-subtab]");
