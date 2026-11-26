@@ -126,6 +126,50 @@ class ReportRegionSummarizerTest {
         assertEquals(1, region.getIntValue("unassignedAnswers"));
     }
 
+    /** 宣传状态的计数能对上具体回答：正面、负面各列出是哪几条、凭什么计入，按问题顺序；中性的不列。 */
+    @Test
+    void shouldListAnswersBehindPositiveAndNegativeCounts() {
+        List<ReportAnswer> answers = List.of(
+                answer(1, "美国", "NON_BRAND", "Olight first", target(true, 1, "FIRST_CHOICE"), "[]", null),
+                answer(2, "美国", "BRAND", "Olight good", "[]", "[]", "POSITIVE"),
+                answer(3, "美国", "NON_BRAND", "Olight strong", target(true, 2, "STRONG"), "[]", null),
+                answer(4, "美国", "NON_BRAND", "Olight also", target(true, 3, "PARALLEL"), "[]", null),
+                answer(5, "美国", "NON_BRAND", "Olight not", target(false, null, "NOT_RECOMMENDED"), "[]", null),
+                answer(6, "美国", "BRAND", "Olight bad", "[]", "[]", "NEGATIVE"));
+
+        JSONObject portrayal = buildRegionReport(answers).getJSONArray("regions").getJSONObject(0).getJSONObject("portrayal");
+
+        assertEquals(List.of(3, 1, 2), List.of(portrayal.getIntValue("positive"), portrayal.getIntValue("neutral"), portrayal.getIntValue("negative")));
+        assertEquals(List.of("10|FIRST_CHOICE|问题1", "20|BRAND_SENTIMENT|Olight 问题2", "30|STRONG|问题3"), describeAnswers(portrayal.getJSONArray("positiveAnswers")));
+        assertEquals(List.of("50|NOT_RECOMMENDED|问题5", "60|BRAND_SENTIMENT|Olight 问题6"), describeAnswers(portrayal.getJSONArray("negativeAnswers")));
+        assertEquals("chatgpt联网搜索", portrayal.getJSONArray("positiveAnswers").getJSONObject(0).getString("channelName"));
+    }
+
+    /** 标了点名题、但问题只问竞品的回答按其他题处理：不看情感，看目标的推荐强度；回答没提到目标就不计入态度，也不进点名题的正面评价。 */
+    @Test
+    void shouldJudgeOffTargetBrandQuestionByStrengthInsteadOfSentiment() {
+        ReportAnswer rivalOnly = answer(1, "美国", "BRAND", "Fenix is good", "[]",
+                "[{\"type\":\"POSITIVE\",\"dimension\":\"brightness\",\"quote\":\"good\"}]", "POSITIVE");
+        rivalOnly.result().setQuestionSnapshot("{\"text\":\"How good is Fenix\",\"brandScope\":\"BRAND\",\"intent\":\"AWARENESS\",\"region\":\"美国\"}");
+        ReportAnswer rivalWithTarget = answer(2, "美国", "BRAND", "Fenix is fine, Olight is better", target(true, 1, "STRONG"), "[]", "NEGATIVE");
+        rivalWithTarget.result().setQuestionSnapshot("{\"text\":\"Is Fenix worth it\",\"brandScope\":\"BRAND\",\"intent\":\"AWARENESS\",\"region\":\"美国\"}");
+
+        JSONObject portrayal = buildRegionReport(List.of(rivalOnly, rivalWithTarget)).getJSONArray("regions").getJSONObject(0).getJSONObject("portrayal");
+
+        assertEquals(List.of(1, 0, 0), List.of(portrayal.getIntValue("positive"), portrayal.getIntValue("neutral"), portrayal.getIntValue("negative")));
+        assertEquals(List.of("20|STRONG|Is Fenix worth it"), describeAnswers(portrayal.getJSONArray("positiveAnswers")));
+        assertTrue(portrayal.getJSONArray("positives").isEmpty());
+    }
+
+    /**
+     * @param answers 计为正面或负面的回答清单
+     * @return 每条写成“诊断结果 ID|计入原因|问题原文”，便于整体比较
+     */
+    private List<String> describeAnswers(JSONArray answers) {
+        return answers.stream().map(JSONObject.class::cast)
+                .map(answer -> answer.getLong("resultId") + "|" + answer.getString("reason") + "|" + answer.getString("question")).toList();
+    }
+
     /**
      * @param answers 报告回答
      * @return 汇总中的 ⑦ 部分
@@ -155,7 +199,9 @@ class ReportRegionSummarizerTest {
         result.setAnswerText(text);
         result.setCitations("[]");
         result.setChannelSnapshot("{\"id\":52,\"channelName\":\"chatgpt联网搜索\",\"modelName\":\"gpt-5.5\"}");
-        JSONObject snapshot = new JSONObject(true).fluentPut("text", "问题" + question).fluentPut("brandScope", brandScope).fluentPut("intent", "RECOMMENDATION");
+        // 点名题、对比题的问题原文要出现目标名称才算数，夹具里统一带上；非品牌题不能出现
+        String questionText = ("NON_BRAND".equals(brandScope) ? "" : "Olight ") + "问题" + question;
+        JSONObject snapshot = new JSONObject(true).fluentPut("text", questionText).fluentPut("brandScope", brandScope).fluentPut("intent", "RECOMMENDATION");
         if (region != null) {
             snapshot.put("region", region);
         }

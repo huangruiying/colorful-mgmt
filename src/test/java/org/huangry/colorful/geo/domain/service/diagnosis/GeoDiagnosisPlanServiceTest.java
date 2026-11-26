@@ -22,6 +22,38 @@ class GeoDiagnosisPlanServiceTest {
         assertDoesNotThrow(() -> service.validateQuestions(project(), List.of(branded)));
     }
 
+    /** 品牌认知题、竞品比较题必须问到本项目：名称或别名都算，忽略大小写、全半角与空白；没问到的查完全部问题后按序号一次列出。 */
+    @Test
+    void shouldRejectBrandAndComparisonQuestionsThatDoNotNameProject() {
+        var named = question("ＷｅＫｎｏｒａ 可靠吗"); named.setBrandScope("BRAND");
+        var aliasCompared = question("微 诺 拉和 Dify 哪个更适合企业"); aliasCompared.setBrandScope("COMPARISON");
+        assertDoesNotThrow(() -> service.validateQuestions(project(), List.of(named, aliasCompared)));
+
+        var competitorOnly = question("Dify 主要提供哪些功能"); competitorOnly.setBrandScope("BRAND");
+        var competitorsCompared = question("Dify 和 FastGPT 哪个更稳定"); competitorsCompared.setBrandScope("COMPARISON");
+        var error = assertThrows(IllegalArgumentException.class, () -> service.validateQuestions(project(),
+                List.of(question("企业知识库怎么选"), competitorOnly, named, competitorsCompared)));
+        assertEquals("第 2、4 个问题的品牌范围是品牌认知或竞品比较，但问题里没有出现项目名称或别名，请调整内容或品牌范围", error.getMessage());
+    }
+
+    /** 不点任何品牌的品类比较属于非品牌题，意图可以是比较；没问到本项目的题超过 30 道时只列前 30 个序号并给出总数，提示里不带问题原文。 */
+    @Test
+    void shouldAcceptCategoryComparisonAsNonBrandAndCapListedNumbers() {
+        var category = question("开源知识库和商业知识库哪个更省钱"); category.setIntent("COMPARISON");
+        assertDoesNotThrow(() -> service.validateQuestions(project(), List.of(category)));
+
+        List<GeoDiagnosisPlanQuestionEntity> offTarget = new java.util.ArrayList<>();
+        for (int index = 0; index < 31; index++) {
+            var competitorOnly = question("Dify 的第 " + index + " 个功能怎么样"); competitorOnly.setBrandScope("BRAND");
+            offTarget.add(competitorOnly);
+        }
+        var error = assertThrows(IllegalArgumentException.class, () -> service.validateQuestions(project(), offTarget));
+        assertTrue(error.getMessage().startsWith("第 1、2、3、"), error.getMessage());
+        assertTrue(error.getMessage().contains("、30 个等共 31 个问题的品牌范围"), error.getMessage());
+        assertFalse(error.getMessage().contains("31 个等"), error.getMessage());
+        assertFalse(error.getMessage().contains("Dify"), error.getMessage());
+    }
+
     @Test
     void shouldRejectDuplicatesAndNormalizeOrder() {
         assertThrows(IllegalArgumentException.class, () -> service.validateQuestions(project(),

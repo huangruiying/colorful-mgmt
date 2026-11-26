@@ -218,12 +218,28 @@ class QuestionGenerateServiceTest {
         for (String response : List.of("说明而不是 JSON", "[]", "null", "[null]", "[123]",
                 "[{\"text\":{},\"intent\":\"RECOMMENDATION\",\"brandScope\":\"NON_BRAND\"}]",
                 "[{\"text\":\"WeKnora 好用吗？\",\"intent\":\"RECOMMENDATION\",\"brandScope\":\"NON_BRAND\"}]",
+                // 只问竞品、或只比较竞品的题不能标成品牌认知、竞品比较
+                "[{\"text\":\"Dify 好用吗？\",\"intent\":\"AWARENESS\",\"brandScope\":\"BRAND\"}]",
+                "[{\"text\":\"Dify 和 FastGPT 哪个好？\",\"intent\":\"COMPARISON\",\"brandScope\":\"COMPARISON\"}]",
                 "[{\"text\":\"企业知识库推荐？\",\"intent\":\"INVALID\",\"brandScope\":\"NON_BRAND\"}]",
                 "[{\"text\":\"企业知识库推荐？\",\"intent\":\"RECOMMENDATION\",\"brandScope\":\"NON_BRAND\"}] trailing",
                 "[{\"text\":\"企业知识库推荐？\",\"intent\":\"RECOMMENDATION\",\"brandScope\":\"NON_BRAND\"}] {}")) {
             when(client.query(any(LLMQueryRequest.class))).thenReturn(LLMResponse.withoutCitations(response));
             assertThrows(LLMClientException.class, () -> service.generate(project, null, 1, "中文", List.of("美国")));
         }
+    }
+
+    /** 品牌认知母题没问到本项目时不调用模型；改写后丢了项目名称（如写成“这个品牌”）时整批失败，不返回部分结果。 */
+    @Test
+    void shouldRequireBrandQuestionToNameProjectBeforeAndAfterLocalizing() {
+        assertThrows(IllegalArgumentException.class, () -> service.localizeQuestions(project, null, "德国", null,
+                List.of(base("Dify 可靠吗？", "AWARENESS", "BRAND"))));
+        verifyNoInteractions(client);
+
+        when(client.query(any(LLMQueryRequest.class))).thenReturn(LLMResponse.withoutCitations(
+                "[{\"text\":\"Ist diese Marke in Deutschland zuverlässig?\",\"language\":\"德语\"}]"));
+        assertThrows(LLMClientException.class, () -> service.localizeQuestions(project, null, "德国", null,
+                List.of(base("WeKnora 可靠吗？", "AWARENESS", "BRAND"))));
     }
 
     /** 数量越界、母题语言为空、没有地域（含全是空白）或地域超长，都在调用模型前拒绝。 */

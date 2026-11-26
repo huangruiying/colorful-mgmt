@@ -81,7 +81,10 @@ class GeoPromptTemplateServiceTest {
                 assertThrows(IllegalArgumentException.class, () -> service.createTemplateVersion(ADVICE, VALID_ADVICE + "。")).getMessage());
     }
 
-    /** 建表脚本为每个提示词写了初始模板：判定从第 2 版开始（沿用 v2 编号）、其余从第 1 版开始，且都只用声明的变量、必填变量齐全。 */
+    /**
+     * 建表脚本为每个提示词写了初始模板，且都只用声明的变量、必填变量齐全。
+     * 判定从第 2 版开始（沿用 v2 编号）；两个制题提示词写明品牌范围后也从第 2 版开始，与已有库执行迁移脚本后的版本号一致；其余从第 1 版开始。
+     */
     @Test
     void shouldSeedEveryPromptWithValidTemplate() throws Exception {
         String ddl = new String(new ClassPathResource("db/mysql/001_init.sql").getInputStream().readAllBytes(), StandardCharsets.UTF_8);
@@ -95,6 +98,8 @@ class GeoPromptTemplateServiceTest {
 
         assertEquals(PromptTemplateKey.values().length, versions.size());
         assertEquals(2, versions.get(PromptTemplateKey.DIAGNOSIS_REPORT_RESULT_JUDGE));
+        assertEquals(2, versions.get(PromptTemplateKey.DIAGNOSIS_PLAN_QUESTION_GENERATE));
+        assertEquals(2, versions.get(PromptTemplateKey.DIAGNOSIS_PLAN_QUESTION_LOCALIZE));
         assertEquals(1, versions.get(PromptTemplateKey.DIAGNOSIS_REPORT_ADVICE));
     }
 

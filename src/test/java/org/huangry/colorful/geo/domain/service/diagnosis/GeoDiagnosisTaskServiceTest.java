@@ -169,6 +169,20 @@ class GeoDiagnosisTaskServiceTest {
         assertThrows(IllegalArgumentException.class, () -> service.validateSamePlan(original, 2L));
     }
 
+    /** 方案里的问题不再符合校验规则（如品牌认知题没有问到本项目）时不创建任务，不写任何表，提示原样给到用户。 */
+    @Test
+    void shouldRejectTaskWhenPlanQuestionsFailValidation() {
+        configure(2, 1, 1);
+        doThrow(new IllegalArgumentException("第 1 个问题的品牌范围是品牌认知或竞品比较，但问题里没有出现项目名称或别名，请调整内容或品牌范围"))
+                .when(planService).validateQuestions(any(), any());
+
+        var error = assertThrows(IllegalArgumentException.class, () -> service.createTask(new CreateDiagnosisTaskRequest(1L, "blocked")));
+
+        assertTrue(error.getMessage().startsWith("第 1 个问题的品牌范围"));
+        verify(tasks, never()).insert(any(GeoDiagnosisTaskEntity.class));
+        verifyNoInteractions(results);
+    }
+
     /** 无效提交在读取配置前拒绝，避免意外创建任务。 */
     @Test
     void shouldRejectInvalidSubmissionBeforeWrite() {

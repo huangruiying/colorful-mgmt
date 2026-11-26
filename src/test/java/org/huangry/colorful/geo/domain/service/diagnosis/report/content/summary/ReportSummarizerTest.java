@@ -310,6 +310,83 @@ class ReportSummarizerTest {
         assertEquals(0.3333, reputation.getDouble("ownedRate"));
     }
 
+    /** 标了点名题、但问的是别的品牌的回答不算点名题：品牌认知和大盘的口碑数字都和没有这条回答时一样，样本说明里给出条数。 */
+    @Test
+    void shouldLeaveBrandQuestionAboutAnotherBrandOutOfBrandPerception() {
+        List<ReportAnswer> answers = new ArrayList<>(answers());
+        // 只问竞品却标成点名题：判定即使给了情感、正面评价和卖点，说的也是竞品
+        ReportAnswer rivalNamed = answer(8, 1, "BRAND", "易加油优惠多", "[{\"name\":\"易加油\",\"type\":\"COMPETITOR\",\"recommended\":true,\"rank\":1}]",
+                "[{\"type\":\"POSITIVE\",\"dimension\":\"优惠\",\"quote\":\"优惠多\"},{\"type\":\"SELLING_POINT_COVERED\",\"dimension\":\"优惠\",\"quote\":\"优惠多\"}]",
+                "POSITIVE", "SUCCEEDED");
+        rivalNamed.result().setQuestionSnapshot("{\"text\":\"易加油怎么样\",\"brandScope\":\"BRAND\",\"intent\":\"AWARENESS\"}");
+        answers.add(rivalNamed);
+
+        JSONObject summary = summarizer.buildSummary(answers, project, Map.of(), new JSONObject(), "v1");
+        JSONObject baseline = summarizer.buildSummary(answers(), project, Map.of(), new JSONObject(), "v1");
+
+        assertEquals(List.of(1, 0), List.of(summary.getJSONObject("sample").getIntValue("offTargetBrandAnswers"),
+                summary.getJSONObject("sample").getIntValue("offTargetComparisonAnswers")));
+        assertEquals(0, baseline.getJSONObject("sample").getIntValue("offTargetBrandAnswers"));
+        assertEquals(8, summary.getJSONObject("sample").getIntValue("validAnswers"));
+        assertEquals(baseline.getJSONObject("brand").getJSONArray("models"), summary.getJSONObject("brand").getJSONArray("models"));
+        assertTrue(summary.getJSONObject("brand").getJSONArray("positives").isEmpty());
+        assertTrue(summary.getJSONObject("brand").getJSONArray("sellingPoints").isEmpty());
+        assertEquals(baseline.getJSONArray("models").getJSONObject(0).getDouble("brandPositiveRate"),
+                summary.getJSONArray("models").getJSONObject(0).getDouble("brandPositiveRate"));
+        assertEquals(baseline.getJSONObject("dashboard").getJSONObject("total").getJSONObject("reputation"),
+                summary.getJSONObject("dashboard").getJSONObject("total").getJSONObject("reputation"));
+    }
+
+    /**
+     * 问题里没有目标的对比题仍是对比题，推荐份额照常统计；其中的维度胜负逐条核对：
+     * 概括或原文点到了目标的是在说目标，赢和输都保留（输的还会成为规则问题）；只说竞品之间谁强谁弱的不记到目标头上，条数单独给出。
+     */
+    @Test
+    void shouldKeepDimensionResultsAboutTargetAndExcludeOnesBetweenCompetitors() {
+        // 两个竞品之间的比较：胜负说的是易加油比小桔加油强，和目标无关
+        ReportAnswer rivalsCompared = answer(1, 1, "COMPARISON", "易加油覆盖更多", "[{\"name\":\"易加油\",\"type\":\"COMPETITOR\",\"recommended\":true,\"rank\":1}]",
+                "[{\"type\":\"DIMENSION_RESULT\",\"brand\":\"易加油\",\"dimension\":\"覆盖\",\"outcome\":\"WIN\",\"content\":\"易加油的覆盖比小桔加油多\",\"quote\":\"易加油覆盖更多\"}]",
+                null, "SUCCEEDED");
+        rivalsCompared.result().setQuestionSnapshot("{\"text\":\"易加油和小桔加油哪个覆盖多\",\"brandScope\":\"COMPARISON\",\"intent\":\"COMPARISON\"}");
+        // 两类产品之间的比较：回答把目标点名归入其中一类，判定的概括或原文点到了目标
+        ReportAnswer categoriesCompared = answer(2, 1, "COMPARISON", "独立平台如团油更便宜，油企自有服务更稳",
+                "[{\"name\":\"团油\",\"type\":\"TARGET\",\"recommended\":true,\"strength\":\"WITH_RESERVATION\"},{\"name\":\"易加油\",\"type\":\"COMPETITOR\",\"recommended\":true}]",
+                "[{\"type\":\"DIMENSION_RESULT\",\"brand\":\"易加油\",\"dimension\":\"稳定性\",\"outcome\":\"LOSE\",\"content\":\"团油所属的独立平台稳定性不如油企自有服务\",\"quote\":\"油企自有服务更稳\"},"
+                        + "{\"type\":\"DIMENSION_RESULT\",\"brand\":\"易加油\",\"dimension\":\"到手价\",\"outcome\":\"WIN\",\"content\":\"独立平台通常更便宜\",\"quote\":\"独立平台如团油更便宜\"}]",
+                null, "SUCCEEDED");
+        categoriesCompared.result().setQuestionSnapshot("{\"text\":\"独立加油平台和油企自有服务哪个省钱\",\"brandScope\":\"COMPARISON\",\"intent\":\"COMPARISON\"}");
+        // 问题里点了目标的对比题：比较的一方就是目标，胜负的文字里没写目标也计入
+        ReportAnswer targetCompared = answer(3, 1, "COMPARISON", "易加油的油站更多", "[{\"name\":\"易加油\",\"type\":\"COMPETITOR\",\"recommended\":true}]",
+                "[{\"type\":\"DIMENSION_RESULT\",\"brand\":\"易加油\",\"dimension\":\"油站数量\",\"outcome\":\"LOSE\",\"quote\":\"易加油的油站更多\"}]", null, "SUCCEEDED");
+
+        JSONObject summary = summarizer.buildSummary(List.of(rivalsCompared, categoriesCompared, targetCompared), project, Map.of(), new JSONObject(), "v1");
+
+        assertEquals(List.of(0, 2), List.of(summary.getJSONObject("sample").getIntValue("offTargetBrandAnswers"),
+                summary.getJSONObject("sample").getIntValue("offTargetComparisonAnswers")));
+        JSONObject competitor = summary.getJSONObject("competitor");
+        assertEquals(List.of("稳定性|0|1", "到手价|1|0", "油站数量|0|1"), competitor.getJSONArray("dimensions").stream().map(JSONObject.class::cast)
+                .map(row -> row.getString("dimension") + "|" + row.getIntValue("win") + "|" + row.getIntValue("lose")).toList());
+        assertEquals(1, competitor.getIntValue("excludedDimensionResults"));
+        // 真实的“输”保留下来，照常成为规则问题
+        assertEquals(List.of("对比问题中在「稳定性」上输给竞品", "对比问题中在「油站数量」上输给竞品"), summary.getJSONArray("issues").stream().map(JSONObject.class::cast)
+                .filter(issue -> "LOSING_DIMENSION".equals(issue.getString("type"))).map(issue -> issue.getString("title")).toList());
+        // 三条对比回答都计入推荐份额：目标被推荐 1 次，易加油被推荐 3 次
+        assertEquals(0.25, summary.getJSONArray("models").getJSONObject(0).getDouble("recommendShare"));
+    }
+
+    /** 问题原文用别名、夹空格的写法提到目标时仍算问到了目标，判断与方案保存时的校验一致。 */
+    @Test
+    void shouldTreatAliasWithSpacesAsNamingTarget() {
+        ReportAnswer aliasNamed = answer(8, 1, "BRAND", "能链团油不错", "[]", "[]", "POSITIVE", "SUCCEEDED");
+        aliasNamed.result().setQuestionSnapshot("{\"text\":\"能 链 团 油靠谱吗\",\"brandScope\":\"BRAND\",\"intent\":\"AWARENESS\"}");
+
+        JSONObject summary = summarizer.buildSummary(List.of(aliasNamed), project, Map.of(), new JSONObject(), "v1");
+
+        assertTrue(summary.getJSONObject("sample").containsKey("offTargetBrandAnswers"));
+        assertEquals(0, summary.getJSONObject("sample").getIntValue("offTargetBrandAnswers"));
+        assertEquals(1, summary.getJSONObject("brand").getJSONArray("models").getJSONObject(0).getIntValue("brandAnswers"));
+    }
+
     /** @return 规则归类后的一条来源 JSON */
     private String source(String url, String platform, String sourceType) {
         return new JSONObject(true).fluentPut("url", url).fluentPut("title", "标题").fluentPut("platform", platform)
@@ -344,7 +421,9 @@ class ReportSummarizerTest {
         result.setAnswerText(text);
         result.setCitations("[]");
         result.setChannelSnapshot("{\"id\":6,\"channelName\":\"能链 claude\",\"modelName\":\"claude\"}");
-        result.setQuestionSnapshot("{\"text\":\"问题" + question + "\",\"brandScope\":\"" + brandScope + "\",\"intent\":\"RECOMMENDATION\"}");
+        // 点名题、对比题的问题原文要出现目标名称才算数，夹具里统一带上；非品牌题不能出现
+        String questionText = ("NON_BRAND".equals(brandScope) ? "" : "团油") + "问题" + question;
+        result.setQuestionSnapshot("{\"text\":\"" + questionText + "\",\"brandScope\":\"" + brandScope + "\",\"intent\":\"RECOMMENDATION\"}");
         var analysis = new GeoDiagnosisReportResultAnalysisEntity();
         analysis.setStatus(status);
         analysis.setBrands(brands);
