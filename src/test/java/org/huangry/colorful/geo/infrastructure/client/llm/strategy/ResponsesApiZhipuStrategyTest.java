@@ -22,7 +22,7 @@ class ResponsesApiZhipuStrategyTest {
     /** 挂载搜索并流式读取，不发送智谱忽略的 tool_choice。 */
     @Test
     void shouldMountWebSearchWithStreamingWithoutToolChoice() {
-        var body = new ResponsesApiZhipuStrategy().buildRequestBody(new LLMQueryRequest("2026年加油优惠App推荐哪些？"), channel());
+        var body = new ResponsesApiZhipuStrategy().buildRequestBody(LLMQueryRequest.withWebSearch("2026年加油优惠App推荐哪些？"), channel());
 
         assertEquals(List.of(Map.of("type", "web_search")), body.get("tools"));
         assertFalse(body.containsKey("tool_choice"));

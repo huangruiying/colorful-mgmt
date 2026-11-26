@@ -1,6 +1,5 @@
 package org.huangry.colorful.geo.infrastructure.client.publish.strategy.browser.zhihu;
 
-import org.huangry.colorful.geo.infrastructure.client.publish.browser.zhihu.ZhihuBrowserClient;
 import org.huangry.colorful.geo.infrastructure.client.publish.model.PlatformPublicationRequest;
 import org.huangry.colorful.geo.infrastructure.client.publish.model.PrePublicationRequest;
 import org.huangry.colorful.geo.infrastructure.client.publish.strategy.PublicationPlatformStrategyRouter;

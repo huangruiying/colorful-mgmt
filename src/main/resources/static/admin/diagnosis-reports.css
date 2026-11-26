@@ -18,7 +18,7 @@
 .report-quote .text-button { padding:0 4px; font-size:13px; }
 .report-empty { color:#9aa9bb; font-size:13px; }
 .report-model-filter { min-width:180px; margin-right:8px; padding:9px 12px; border:1px solid #d5dfed; border-radius:8px; color:#19324e; background:white; font:inherit; }
-.report-supplement-button, .report-export-button { margin-right:8px; }
+.report-action-button, .report-export-button { margin-right:8px; }
 .report-filter-note { margin:0 0 16px; padding:10px 14px; background:#f3f7fd; border:1px solid #d8e4f5; border-radius:8px; color:#4b5f79; font-size:13px; }
 .report-advice-meta { color:#73849b; font-size:13px; margin-left:6px; }
 .report-advice-content { margin:6px 0 0; color:#33465e; font-size:14px; line-height:1.7; }
@@ -26,11 +26,90 @@
 .report-evidence h4 { margin:16px 0 4px; font-size:14px; }
 .report-evidence h4:first-child { margin-top:0; }
 .report-progress { padding:18px; background:#f7f9fd; border:1px solid #e0e7f1; border-radius:10px; line-height:1.8; }
-@media(max-width:900px) { .report-dimensions { grid-template-columns:1fr; } }
+.task-status[data-status=PAUSED] { color:#84541e; background:#fff7e9; }
+/* 两段进度：① 判定每条回答 → ② 生成报告内容，按各段状态着色 */
+.report-stages { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin:0 0 16px; }
+.report-stage { display:flex; flex-direction:column; gap:4px; padding:12px 16px; border:1px solid #e0e7f1; border-radius:10px; background:white; color:#73849b; font-size:13px; }
+.report-stage strong { color:#33465e; font-size:14px; }
+.report-stage[data-state=queued], .report-stage[data-state=running] { border-color:#b9d3f5; background:#eaf2ff; color:#245faa; }
+.report-stage[data-state=paused] { border-color:#f1d9b0; background:#fff7e9; color:#84541e; }
+.report-stage[data-state=failed] { border-color:#f2c9c7; background:#fff1f0; color:#a13031; }
+.report-stage[data-state=done] { border-color:#c4e6d0; background:#eaf8ef; color:#247348; }
+.report-progress + .report-section, .report-progress + .report-filter-note { margin-top:20px; }
+/* 第 2 段的子步骤：每行一个，状态标签按 data-state 着色 */
+.report-substeps { list-style:none; margin:6px 0 0; padding:0; display:flex; flex-direction:column; gap:4px; }
+.report-substeps li { display:flex; align-items:baseline; gap:8px; color:#4b5f79; font-size:13px; }
+.report-substep-state { flex:none; min-width:4.5em; padding:1px 8px; border-radius:6px; background:#edf2f8; color:#73849b; font-size:12px; text-align:center; }
+.report-substeps li[data-state=running] .report-substep-state { background:#eaf2ff; color:#245faa; }
+.report-substeps li[data-state=done] .report-substep-state { background:#eaf8ef; color:#247348; }
+.report-substeps li[data-state=failed] .report-substep-state { background:#fff1f0; color:#a13031; }
+.report-substeps li[data-state=skipped] .report-substep-state { background:#f3f5f8; color:#8a98aa; }
+.report-substep-name { flex:none; color:#33465e; }
+.report-substep-detail { color:#73849b; overflow-wrap:anywhere; }
+@media(max-width:900px) { .report-dimensions { grid-template-columns:1fr; } .report-stages { grid-template-columns:1fr; } }
+/* ⑦ 地域报告：地域子页签（链接，页面与导出网页各自切换）、宣传状态标记、两列证据与操作步骤 */
+.report-subtabs { display:flex; gap:8px; flex-wrap:wrap; margin:0 0 14px; }
+.report-subtab { padding:6px 14px; border:1px solid #d5dfed; border-radius:999px; background:white; color:#4b5f79; font-size:14px; text-decoration:none; cursor:pointer; }
+.report-subtab[aria-selected=true] { border-color:#347de6; background:#eaf2fd; color:#245faa; font-weight:600; }
+.report-region-sample { margin:0 0 16px; }
+.report-portrayal { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0 0 6px; color:#33465e; font-size:14px; }
+.report-portrayal-badge { padding:3px 12px; border-radius:999px; }
+.report-portrayal-positive { background:#eaf8ef; color:#247348; }
+.report-portrayal-neutral { background:#eef2f7; color:#475d79; }
+.report-portrayal-negative { background:#fff1f0; color:#a13031; }
+.report-portrayal-insufficient { background:#fff7e9; color:#84541e; }
+.report-section > div > h4 { margin:18px 0 10px; font-size:14px; }
+.report-dimensions-2 { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.report-strategy { display:flex; flex-direction:column; gap:16px; }
+.report-steps { margin:8px 0 0; padding-left:22px; color:#33465e; font-size:14px; line-height:1.7; }
+@media(max-width:900px) { .report-dimensions-2 { grid-template-columns:1fr; } }
+/* ⓪ 诊断大盘：三段指标（被看见一整行，被信任与被喜欢并排），下面左边趋势图、右边对比图；图是页面内 SVG，随容器等比缩放 */
+.report-dashboard-block { min-width:0; margin:0 0 20px; }
+.report-dashboard-heading { display:flex; align-items:center; gap:10px; margin:0 0 12px; color:#33465e; font-size:15px; font-weight:600; }
+.report-dashboard-tag { padding:3px 10px; border-radius:6px; font-size:14px; }
+.report-dashboard-tag-seen { background:#eaf2fd; color:#1f6feb; }
+.report-dashboard-tag-trust { background:#e6f6ec; color:#1f9d63; }
+.report-dashboard-tag-favor { background:#fff3d6; color:#b7791f; }
+.report-dashboard-pair { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+.report-dashboard-cards { display:grid; gap:16px; }
+.report-dashboard-cards-5 { grid-template-columns:repeat(5,minmax(0,1fr)); }
+.report-dashboard-cards-2 { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.report-dashboard-block > .report-dashboard-panel { margin:0 0 16px; }
+.report-dashboard-stack { display:flex; height:12px; margin:14px 0 12px; border-radius:6px; overflow:hidden; background:#f1f5fb; }
+.report-dashboard-stack i { display:block; height:100%; }
+.report-dashboard-stack-positive { background:#1f6feb; }
+.report-dashboard-stack-neutral { background:#a9c4f5; }
+.report-dashboard-stack-negative { background:#e5484d; }
+.report-dashboard-legend.report-dashboard-stack-legend { justify-content:flex-start; margin:0; font-size:13px; }
+.report-dashboard-card { display:flex; flex-direction:column; gap:6px; min-width:0; padding:18px 20px; border:1px solid #e0e7f1; border-radius:14px; background:white; }
+.report-dashboard-label { color:#5a6f8a; font-size:14px; }
+.report-dashboard-value { color:#1f6feb; font-size:30px; font-weight:700; line-height:1.2; }
+.report-dashboard-change { margin:0; min-height:1.5em; color:#8a98aa; font-size:13px; }
+.report-dashboard-better { color:#e5484d; }
+.report-dashboard-worse { color:#1f9d63; }
+.report-dashboard-charts { display:grid; grid-template-columns:minmax(0,3fr) minmax(0,2fr); gap:16px; }
+.report-dashboard-panel { min-width:0; padding:18px 20px; border:1px solid #e0e7f1; border-radius:14px; background:white; }
+.report-dashboard-panel h3 { margin:0 0 4px; font-size:16px; }
+.report-dashboard-note { margin:0 0 8px; color:#5a6f8a; font-size:13px; }
+.report-dashboard-metrics { justify-content:flex-end; margin:-28px 0 8px; }
+.report-dashboard-metrics .report-subtab { padding:4px 12px; border-color:transparent; font-size:13px; }
+.report-dashboard-legend { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:4px 14px; margin:0 0 4px; color:#5a6f8a; font-size:12px; }
+.report-dashboard-legend i { display:inline-block; width:10px; height:10px; margin-right:6px; border-radius:2px; }
+.report-dashboard-svg { display:block; width:100%; height:auto; }
+.report-dashboard-rank { display:flex; flex-direction:column; gap:10px; margin-top:12px; }
+.report-dashboard-rank-row { display:grid; grid-template-columns:minmax(0,7em) minmax(0,1fr) 4em; align-items:center; gap:10px; color:#5a6f8a; font-size:13px; }
+.report-dashboard-rank-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.report-dashboard-rank-track { height:12px; border-radius:6px; background:#f1f5fb; }
+.report-dashboard-rank-track i { display:block; height:100%; min-width:2px; border-radius:6px; background:#d6e4fb; }
+.report-dashboard-rank-value { text-align:right; color:#33465e; font-weight:600; }
+.report-dashboard-rank-primary { color:#1f6feb; font-weight:600; }
+.report-dashboard-rank-primary .report-dashboard-rank-track i { background:#1f6feb; }
+.report-dashboard-rank-primary .report-dashboard-rank-value { color:#1f6feb; }
+@media(max-width:900px) { .report-dashboard-cards-5 { grid-template-columns:repeat(2,minmax(0,1fr)); } .report-dashboard-pair, .report-dashboard-charts { grid-template-columns:1fr; } .report-dashboard-metrics { justify-content:flex-start; margin-top:0; } }
 /* 导出网页的版面：抬头与页签内容居中限宽，页签切换和弹窗与系统页面一致 */
 .report-export { max-width:1180px; margin:0 auto; padding:32px 24px 48px; background:white; }
 .report-export h1 { margin:0 0 8px; font-size:22px; }
 .report-export-note { margin:0 0 4px; color:#4b5f79; font-size:13px; }
 .report-export > .report-filter-note { margin-top:12px; }
 /* 导出网页中切换页签、打开和关闭弹窗的链接，外观与系统中的按钮一致 */
-.report-export a.text-button, .report-export a.refresh-button, .report-export a.report-tab { text-decoration:none; }
+.report-export a.text-button, .report-export a.refresh-button, .report-export a.report-tab, .report-export a.report-subtab { text-decoration:none; }

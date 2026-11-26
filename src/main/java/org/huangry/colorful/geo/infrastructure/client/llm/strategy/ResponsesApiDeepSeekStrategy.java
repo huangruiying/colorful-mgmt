@@ -10,8 +10,8 @@ import java.util.Map;
 import java.util.List;
 
 /**
- * DeepSeek 官方 Responses 联网问答策略。
- * 要求模型调用 DeepSeek 服务端搜索并由协议父类执行；不在应用侧执行搜索或拼接搜索资料。
+ * DeepSeek 官方 Responses 问答策略：流式读取回答，请求要求联网时要求模型调用 DeepSeek 服务端搜索。
+ * 搜索在服务端执行，不在应用侧执行搜索或拼接搜索资料。
  * DeepSeek 回答不返回 url_citation，以接口返回的已打开网页作为引用；检索词不作为引用。
  * 渠道选择由路由器负责，HTTP 超时及连接资源由共用客户端管理。
  */
@@ -39,7 +39,7 @@ public class ResponsesApiDeepSeekStrategy extends AbstractResponsesApiStrategy {
     }
 
     /**
-     * 在协议基础请求上维护当前策略的参数。
+     * 在协议基础请求上维护当前策略的参数：联网与否都流式读取。
      * @param request 当前问题
      * @param channel 渠道配置
      * @return 本次调用的完整请求体
@@ -47,12 +47,20 @@ public class ResponsesApiDeepSeekStrategy extends AbstractResponsesApiStrategy {
     @Override
     protected Map<String, Object> buildRequestBody(LLMQueryRequest request, GeoLlmChannelEntity channel) {
         Map<String, Object> body = super.buildRequestBody(request, channel);
-        // DeepSeek 搜索来源由服务端决定，不传豆包专用的 sources；强制搜索保证采样结果均为联网回答。
-        body.put("tools", List.of(Map.of("type", "web_search")));
-        body.put("tool_choice", "required");
-        // 多轮搜索与打开网页耗时较长，持续读取事件，完成事件仍通过父类解析并保存完整回答。
+        // 多轮搜索与打开网页耗时较长，持续读取事件；不联网时沿用同一读取方式，完成事件仍通过父类解析并保存完整回答。
         body.put("stream", true);
         return body;
+    }
+
+    /**
+     * 挂载 DeepSeek 服务端搜索并要求必须调用，保证诊断结果均为联网回答；只在请求要求联网时由父类调用。
+     * @param body 已含基础字段的请求体
+     */
+    @Override
+    protected void addWebSearchParams(Map<String, Object> body) {
+        // DeepSeek 搜索来源由服务端决定，不传豆包专用的 sources
+        body.put("tools", List.of(Map.of("type", "web_search")));
+        body.put("tool_choice", "required");
     }
 
     /**

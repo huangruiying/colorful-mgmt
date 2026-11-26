@@ -9,16 +9,16 @@ import org.huangry.colorful.geo.infrastructure.repository.GeoDiagnosisPlanChanne
 import org.huangry.colorful.geo.infrastructure.repository.GeoDiagnosisPlanDao;
 import org.huangry.colorful.geo.infrastructure.repository.GeoDiagnosisPlanQuestionDao;
 import org.huangry.colorful.geo.infrastructure.repository.GeoDiagnosisTaskDao;
-import org.huangry.colorful.geo.infrastructure.repository.GeoDiagnosisTaskReportDao;
-import org.huangry.colorful.geo.infrastructure.repository.GeoDiagnosisTaskResultAnalysisDao;
+import org.huangry.colorful.geo.infrastructure.repository.GeoDiagnosisReportDao;
+import org.huangry.colorful.geo.infrastructure.repository.GeoDiagnosisReportResultAnalysisDao;
 import org.huangry.colorful.geo.infrastructure.repository.GeoDiagnosisTaskResultDao;
 import org.huangry.colorful.geo.infrastructure.repository.GeoProjectInfoDao;
 import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisPlanChannelEntity;
 import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisPlanEntity;
 import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisPlanQuestionEntity;
 import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisTaskEntity;
-import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisTaskReportEntity;
-import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisTaskResultAnalysisEntity;
+import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisReportEntity;
+import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisReportResultAnalysisEntity;
 import org.huangry.colorful.geo.infrastructure.repository.entity.GeoDiagnosisTaskResultEntity;
 import org.huangry.colorful.geo.infrastructure.repository.entity.GeoProjectInfoEntity;
 import org.springframework.stereotype.Service;
@@ -42,9 +42,9 @@ public class GeoProjectInfoService extends ServiceImpl<GeoProjectInfoDao, GeoPro
     @Resource
     private GeoDiagnosisTaskResultDao taskResultDao;
     @Resource
-    private GeoDiagnosisTaskReportDao taskReportDao;
+    private GeoDiagnosisReportDao taskReportDao;
     @Resource
-    private GeoDiagnosisTaskResultAnalysisDao taskResultAnalysisDao;
+    private GeoDiagnosisReportResultAnalysisDao taskResultAnalysisDao;
 
     /** 校验并持久化项目；返回数据库生成的 ID 与时间，失败则回滚。 */
     @Transactional
@@ -159,12 +159,12 @@ public class GeoProjectInfoService extends ServiceImpl<GeoProjectInfoDao, GeoPro
             return;
         }
         // 回答分析挂在报告下，按报告删除；报告与被分析的结果属于同一任务，删完分析后结果可直接删除
-        List<Long> reportIds = taskReportDao.selectList(new LambdaQueryWrapper<GeoDiagnosisTaskReportEntity>()
-                        .select(GeoDiagnosisTaskReportEntity::getId).in(GeoDiagnosisTaskReportEntity::getTaskId, taskIds))
-                .stream().map(GeoDiagnosisTaskReportEntity::getId).toList();
+        List<Long> reportIds = taskReportDao.selectList(new LambdaQueryWrapper<GeoDiagnosisReportEntity>()
+                        .select(GeoDiagnosisReportEntity::getId).in(GeoDiagnosisReportEntity::getTaskId, taskIds))
+                .stream().map(GeoDiagnosisReportEntity::getId).toList();
         if (!reportIds.isEmpty()) {
-            taskResultAnalysisDao.delete(new LambdaQueryWrapper<GeoDiagnosisTaskResultAnalysisEntity>()
-                    .in(GeoDiagnosisTaskResultAnalysisEntity::getReportId, reportIds));
+            taskResultAnalysisDao.delete(new LambdaQueryWrapper<GeoDiagnosisReportResultAnalysisEntity>()
+                    .in(GeoDiagnosisReportResultAnalysisEntity::getReportId, reportIds));
             taskReportDao.deleteByIds(reportIds);
         }
         taskResultDao.delete(new LambdaQueryWrapper<GeoDiagnosisTaskResultEntity>()

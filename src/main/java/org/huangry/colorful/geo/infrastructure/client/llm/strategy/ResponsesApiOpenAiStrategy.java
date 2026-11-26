@@ -1,14 +1,12 @@
 package org.huangry.colorful.geo.infrastructure.client.llm.strategy;
 
-import org.huangry.colorful.geo.infrastructure.client.llm.model.LLMQueryRequest;
-import org.huangry.colorful.geo.infrastructure.repository.entity.GeoLlmChannelEntity;
 import org.springframework.stereotype.Component;
 import java.util.Map;
 import java.util.List;
 
 /**
- * OpenAI Responses 联网问答策略。
- * 声明搜索工具并由协议父类执行；工具是否可用由实际模型和账号权限决定。
+ * OpenAI Responses 问答策略：请求要求联网时挂载 web_search 工具并要求必须调用。
+ * 搜索由协议父类发出的请求在服务端执行，工具是否可用由实际模型和账号权限决定。
  * 渠道选择由路由器负责，HTTP 超时及连接资源由共用客户端管理。
  */
 @Component
@@ -32,17 +30,12 @@ public class ResponsesApiOpenAiStrategy extends AbstractResponsesApiStrategy {
     }
 
     /**
-     * 在协议基础请求上维护当前策略的参数。
-     * @param request 当前问题
-     * @param channel 渠道配置
-     * @return 本次调用的完整请求体
+     * 挂载 OpenAI 服务端搜索并要求必须调用，保证诊断结果均为联网回答；只在请求要求联网时由父类调用。
+     * @param body 已含基础字段的请求体
      */
     @Override
-    protected Map<String, Object> buildRequestBody(LLMQueryRequest request, GeoLlmChannelEntity channel) {
-        Map<String, Object> body = super.buildRequestBody(request, channel);
-        // 厂商搜索参数由本策略维护，不向通用策略注入工具。
+    protected void addWebSearchParams(Map<String, Object> body) {
         body.put("tools", List.of(Map.of("type", "web_search")));
         body.put("tool_choice", "required");
-        return body;
     }
 }

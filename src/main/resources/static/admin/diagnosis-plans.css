@@ -34,7 +34,7 @@ legend { padding:0 8px; font-weight:600; color:#19324e; }
 .section-heading, .save-bar { justify-content:space-between; }
 .section-heading h3 { font-size:17px; }
 .question-table-scroll, #candidate-list { overflow:auto; max-height:440px; border:1px solid #e0e7f1; border-radius:8px; margin-top:12px; }
-.question-table { width:100%; min-width:870px; table-layout:fixed; border-collapse:collapse; font-size:13px; }
+.question-table { width:100%; min-width:960px; table-layout:fixed; border-collapse:collapse; font-size:13px; }
 .question-table th { position:sticky; top:0; z-index:1; background:#f4f7fc; }
 .question-table th, .question-table td { padding:4px 6px; border-bottom:1px solid #e8edf5; vertical-align:middle; }
 .question-table th:nth-child(1) { width:40px; }
@@ -42,7 +42,8 @@ legend { padding:0 8px; font-weight:600; color:#19324e; }
 .question-table th:nth-child(4) { width:108px; }
 .question-table th:nth-child(5) { width:118px; }
 .question-table th:nth-child(6) { width:64px; }
-.question-table th:nth-child(7) { width:48px; }
+.question-table th:nth-child(7) { width:96px; }
+.question-table th:nth-child(8) { width:48px; }
 .candidate-table th:nth-child(1) { width:48px; }
 .candidate-table th:nth-child(2) { width:40px; }
 .candidate-table th:nth-child(3) { width:auto; }
@@ -50,6 +51,13 @@ legend { padding:0 8px; font-weight:600; color:#19324e; }
 .candidate-table th:nth-child(5) { width:108px; }
 .candidate-table th:nth-child(6) { width:118px; }
 .candidate-table th:nth-child(7) { width:64px; }
+.candidate-table th:nth-child(8) { width:96px; }
+.question-base { margin:4px 0 0; color:#73849b; font-size:12px; line-height:1.5; overflow-wrap:anywhere; }
+.locale-panel { margin-top:18px; padding-top:16px; border-top:1px dashed #cddcf5; }
+.locale-panel h4 { margin:0; font-size:14px; }
+.locale-rows { display:flex; flex-direction:column; gap:8px; margin-top:10px; }
+.locale-rows:empty { display:none; }
+.locale-row { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto; gap:8px; align-items:center; }
 #plan-form .question-table textarea { min-height:30px; height:30px; padding:4px 7px; resize:vertical; font-size:13px; line-height:20px; }
 #plan-form .question-table select, #plan-form .question-table input:not([type=checkbox]) { padding:4px 6px; font-size:13px; }
 .question-pagination { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:12px 0; flex-wrap:wrap; }

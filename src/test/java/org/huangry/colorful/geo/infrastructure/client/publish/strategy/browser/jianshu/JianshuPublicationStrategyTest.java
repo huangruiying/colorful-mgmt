@@ -1,6 +1,5 @@
 package org.huangry.colorful.geo.infrastructure.client.publish.strategy.browser.jianshu;
 
-import org.huangry.colorful.geo.infrastructure.client.publish.browser.jianshu.JianshuBrowserClient;
 import org.huangry.colorful.geo.infrastructure.client.publish.model.PlatformPublicationRequest;
 import org.huangry.colorful.geo.infrastructure.client.publish.model.PublicationResult;
 import org.huangry.colorful.geo.infrastructure.common.enums.PublicationPlatformType;

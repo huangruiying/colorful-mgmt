@@ -11,7 +11,7 @@ import org.huangry.colorful.geo.infrastructure.common.model.PageQuery;
 import org.huangry.colorful.geo.infrastructure.common.model.PageResponse;
 import org.huangry.colorful.geo.domain.service.content.ContentPublishRecordService;
 import org.huangry.colorful.geo.domain.service.content.ContentOptimizationRecordService;
-import org.huangry.colorful.geo.domain.service.optimization.ContentOptimizationService;
+import org.huangry.colorful.geo.domain.service.optimize.ContentOptimizeService;
 import org.springframework.stereotype.Service;
 
 import java.util.NoSuchElementException;
@@ -23,7 +23,7 @@ import java.util.NoSuchElementException;
 @RequiredArgsConstructor
 public class ContentOptimizationBusiness {
 
-    private final ContentOptimizationService optimizationService;
+    private final ContentOptimizeService optimizationService;
     private final ContentOptimizationRecordService optimizationRecordService;
     private final ContentPublishRecordService publishRecordService;
 

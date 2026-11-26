@@ -7,6 +7,7 @@ import org.huangry.colorful.geo.infrastructure.client.llm.LLMClient;
 import org.huangry.colorful.geo.application.test.TestOptimizeBusiness;
 import org.huangry.colorful.geo.application.test.TestPublistBusiness;
 import org.huangry.colorful.geo.domain.model.ContentOptimizationResult;
+import org.huangry.colorful.geo.infrastructure.client.llm.model.LLMQueryRequest;
 import org.huangry.colorful.geo.infrastructure.client.llm.model.LLMResponse;
 import org.huangry.colorful.geo.infrastructure.client.publish.model.PublicationResult;
 import org.huangry.colorful.geo.infrastructure.common.enums.PublicationPlatformType;
@@ -37,7 +38,7 @@ public class TestController {
 	private TestPublistBusiness testPublistBusiness;
 
 	/**
-	 * 调用测试大模型通道；日志只记录问题和回答长度，不输出原文。
+	 * 调用测试大模型通道，按诊断执行的方式要求联网搜索，用来试渠道；日志只记录问题和回答长度，不输出原文。
 	 *
 	 * @param text 测试问题
 	 * @return 大模型回答及引用
@@ -45,7 +46,7 @@ public class TestController {
 	@PostMapping("llmQuery")
 	public LLMResponse llmQuery(@RequestParam("text") String text) {
 		log.info("测试大模型查询 request questionLength={}", text.length());
-		LLMResponse result = llmClient.query(text);
+		LLMResponse result = llmClient.query(LLMQueryRequest.withWebSearch(text));
 		log.info("测试大模型查询 response answerLength={} citationCount={}",
 				result.getContent().length(), result.getCitations().size());
 		return result;

@@ -10,7 +10,7 @@
         <relativePath/>
     </parent>
 
-    <groupId>org.huangry.colorful.baileys</groupId>
+    <groupId>org.huangry.colorful.mgmt</groupId>
     <artifactId>colorful-mgmt</artifactId>
     <version>1.0.0-SNAPSHOT</version>
 

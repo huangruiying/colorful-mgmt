@@ -13,12 +13,13 @@ admin:
   login:
     username: ${GEO_ADMIN_USERNAME:huangruiying}
     # htpasswd -bnBC 10 "" 'hxmsj' | tr -d ':\n'
-    password-hash: ${GEO_ADMIN_PASSWORD_HASH:$2y$10$lpkCMSsBvV8pvWV43e9BROYIFisk/TshHC39GKep30xCQqibDYtoa}
+    password-hash: ${GEO_ADMIN_PASSWORD_HASH:$2y$10$sPqpLEbtH6VsXd89ISJKV.VkBaNflCcdDYiGjxG/0JwVlQ5AYYLr6}
 
 # 模型 HTTP 客户端提前注册，所有模型调用使用同一超时和证书策略。
+# 超时 600 秒（2026-11-16 用户确认）：非流式调用要等整份回答生成完才返回，判定、维度归一等调用常超过 60 秒。
 http:
   llm:
-    timeout-seconds: 60
+    timeout-seconds: 600
     ssl-verify: true
 
 spring:

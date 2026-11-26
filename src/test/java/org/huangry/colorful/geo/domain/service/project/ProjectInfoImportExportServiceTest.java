@@ -52,11 +52,11 @@ class ProjectInfoImportExportServiceTest {
         assertEquals(700, target.jdbc.queryForObject("SELECT channel_id FROM geo_diagnosis_task_result", Long.class));
         assertNull(target.jdbc.queryForObject("SELECT request_id FROM geo_diagnosis_task", String.class));
         long resultId = target.jdbc.queryForObject("SELECT id FROM geo_diagnosis_task_result", Long.class);
-        assertEquals(resultId, target.jdbc.queryForObject("SELECT task_result_id FROM geo_diagnosis_task_result_analysis", Long.class));
+        assertEquals(resultId, target.jdbc.queryForObject("SELECT task_result_id FROM geo_diagnosis_report_result_analysis", Long.class));
         JsonNode snapshot = parseStored(target, "geo_diagnosis_task", "plan_snapshot");
         assertEquals(projectId, snapshot.path("project").path("id").asLong());
         assertEquals(700, snapshot.path("channels").get(0).path("id").asLong());
-        JsonNode summary = parseStored(target, "geo_diagnosis_task_report", "summary");
+        JsonNode summary = parseStored(target, "geo_diagnosis_report", "summary");
         assertEquals(resultId, summary.path("evidence").get(0).path("resultId").asLong());
         assertEquals(700, summary.path("evidence").get(0).path("channelId").asLong());
         assertTrue(summary.path("issues").get(0).path("channelId").isNull());
@@ -65,11 +65,45 @@ class ProjectInfoImportExportServiceTest {
             assertEquals(1, target.jdbc.queryForObject("SELECT COUNT(*) FROM " + table.table, Integer.class), table.section);
         }
         assertEquals("FAILED", target.jdbc.queryForObject("SELECT status FROM geo_diagnosis_task", String.class));
-        assertEquals("SUCCEEDED", target.jdbc.queryForObject("SELECT status FROM geo_diagnosis_task_report", String.class));
+        assertEquals("SUCCEEDED", target.jdbc.queryForObject("SELECT status FROM geo_diagnosis_report", String.class));
         // 再次导出导入后的项目也必须满足文件契约，重复导入会生成第二份项目
         target.business.exportProject(projectId);
         target.business.importProject(exported);
         assertEquals(2, target.jdbc.queryForObject("SELECT COUNT(*) FROM geo_project_info", Integer.class));
+    }
+
+    /** 问题地域、报告语言、报告所在段与第 2 段进度随导出导入保留；已暂停的报告不会被后台自动领取，可以导出导入。 */
+    @Test
+    void shouldCarryQuestionRegionAndReportLanguageThroughExportAndImport() throws Exception {
+        Fixture source = createFixture();
+        seedProject(source, true);
+        source.jdbc.update("UPDATE geo_diagnosis_plan_question SET region = '美国' WHERE id = 30");
+        source.jdbc.update("UPDATE geo_diagnosis_report SET report_language = '英语', status = 'PAUSED', stage = 'CONTENT', "
+                + "content_progress = '{\"steps\":[{\"key\":\"ADVICE\",\"status\":\"FAILED\"}]}'");
+        Fixture target = createFixture();
+        target.business.importProject(source.business.exportProject(10));
+        assertEquals("美国", target.jdbc.queryForObject("SELECT region FROM geo_diagnosis_plan_question", String.class));
+        assertEquals("英语", target.jdbc.queryForObject("SELECT report_language FROM geo_diagnosis_report", String.class));
+        assertEquals("PAUSED", target.jdbc.queryForObject("SELECT status FROM geo_diagnosis_report", String.class));
+        assertEquals("CONTENT", target.jdbc.queryForObject("SELECT stage FROM geo_diagnosis_report", String.class));
+        assertTrue(target.jdbc.queryForObject("SELECT content_progress FROM geo_diagnosis_report", String.class).contains("\"FAILED\""));
+    }
+
+    /** 地域、报告语言和报告所在段加入之前导出的文件没有这几列，仍可导入：地域为空即不分地域，报告语言与所在段由表默认值记为中文、判定段。 */
+    @Test
+    void shouldImportEarlierFileWithoutRegionOrReportLanguage() throws Exception {
+        Fixture source = createFixture();
+        seedProject(source, true);
+        ObjectNode archive = files.parseArchive(source.business.exportProject(10));
+        archive.get("questions").forEach(question -> ((ObjectNode) question).remove("region"));
+        archive.get("reports").forEach(report -> ((ObjectNode) report).remove(List.of("report_language", "stage", "content_progress")));
+        Fixture target = createFixture();
+        target.business.importProject(JsonUtils.toPrettyBytes(archive));
+        assertEquals(1, target.jdbc.queryForObject("SELECT COUNT(*) FROM geo_diagnosis_plan_question", Integer.class));
+        assertNull(target.jdbc.queryForObject("SELECT region FROM geo_diagnosis_plan_question", String.class));
+        assertEquals("中文", target.jdbc.queryForObject("SELECT report_language FROM geo_diagnosis_report", String.class));
+        assertEquals("JUDGE", target.jdbc.queryForObject("SELECT stage FROM geo_diagnosis_report", String.class));
+        assertNull(target.jdbc.queryForObject("SELECT content_progress FROM geo_diagnosis_report", String.class));
     }
 
     /** 已从当前方案删除的问题只恢复追溯标识，不作为新的当前问题出现。 */
@@ -125,9 +159,9 @@ class ProjectInfoImportExportServiceTest {
             source.jdbc.update("UPDATE geo_diagnosis_task SET status = ?", state);
             assertThrows(IllegalArgumentException.class, () -> source.business.exportProject(10));
             source.jdbc.update("UPDATE geo_diagnosis_task SET status = 'FAILED'");
-            source.jdbc.update("UPDATE geo_diagnosis_task_report SET status = ?", state);
+            source.jdbc.update("UPDATE geo_diagnosis_report SET status = ?", state);
             assertThrows(IllegalArgumentException.class, () -> source.business.exportProject(10));
-            source.jdbc.update("UPDATE geo_diagnosis_task_report SET status = 'SUCCEEDED'");
+            source.jdbc.update("UPDATE geo_diagnosis_report SET status = 'SUCCEEDED'");
         }
         ((ObjectNode) archive.withArray(TASK.section).get(0)).put("status", "PENDING");
         assertThrows(IllegalArgumentException.class, () -> source.business.importProject(JsonUtils.toPrettyBytes(archive)));
@@ -220,7 +254,7 @@ class ProjectInfoImportExportServiceTest {
         target.business.importProject(JsonUtils.toPrettyBytes(archive));
         assertEquals(700, target.jdbc.queryForObject("SELECT channel_id FROM geo_diagnosis_plan_channel", Long.class));
         assertEquals(7, target.jdbc.queryForObject("SELECT channel_id FROM geo_diagnosis_task_result", Long.class));
-        assertEquals(7, parseStored(target, "geo_diagnosis_task_report", "summary").path("evidence").get(0).path("channelId").asLong());
+        assertEquals(7, parseStored(target, "geo_diagnosis_report", "summary").path("evidence").get(0).path("channelId").asLong());
     }
 
     /**
@@ -291,8 +325,8 @@ class ProjectInfoImportExportServiceTest {
         plan.putArray("channels").add(channel);
         fixture.jdbc.update("INSERT INTO geo_diagnosis_task (id,request_id,plan_id,project_id,plan_snapshot,status) VALUES (50,'source-request',20,10,?,'FAILED')", plan.toString());
         fixture.jdbc.update("INSERT INTO geo_diagnosis_task_result (id,task_id,question_id,question_sort_order,question_snapshot,channel_id,channel_snapshot,repeat_index,status,answer_text,citations,usage_info,raw_response) VALUES (60,50,30,0,?,7,?,1,'SUCCEEDED','回答正文','[]','{\"total_tokens\":10}','{\"id\":\"vendor-non-numeric\"}')", question.toString(), channel.toString());
-        fixture.jdbc.update("INSERT INTO geo_diagnosis_task_report (id,task_id,status,judge_channel_snapshot,summary) VALUES (70,50,'SUCCEEDED',?,?)", channel.toString(), "{\"evidence\":[{\"resultId\":60,\"channelId\":7}],\"issues\":[{\"id\":\"P1\",\"channelId\":null}]}");
-        fixture.jdbc.update("INSERT INTO geo_diagnosis_task_result_analysis (id,report_id,task_result_id,status,brand_sentiment,brands,points,sources) VALUES (80,70,60,'SUCCEEDED','NEUTRAL','[]','[]','[]')");
+        fixture.jdbc.update("INSERT INTO geo_diagnosis_report (id,task_id,status,judge_channel_snapshot,summary) VALUES (70,50,'SUCCEEDED',?,?)", channel.toString(), "{\"evidence\":[{\"resultId\":60,\"channelId\":7}],\"issues\":[{\"id\":\"P1\",\"channelId\":null}]}");
+        fixture.jdbc.update("INSERT INTO geo_diagnosis_report_result_analysis (id,report_id,task_result_id,status,brand_sentiment,brands,points,sources) VALUES (80,70,60,'SUCCEEDED','NEUTRAL','[]','[]','[]')");
     }
 
     /**

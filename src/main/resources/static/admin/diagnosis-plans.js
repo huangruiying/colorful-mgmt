@@ -9,6 +9,8 @@
     const intentLabels = {RECOMMENDATION:"产品推荐", PROBLEM_SOLVING:"问题解决", COMPARISON:"产品比较", PURCHASE:"采购选型", TECHNICAL:"技术能力", AWARENESS:"品牌认知"};
     const scopeLabels = {NON_BRAND:"非品牌发现", BRAND:"品牌认知", COMPARISON:"竞品比较"};
     let planId = null, page = 0, questions = [], candidates = [], channels = [], ready = false, revision = 0, generating = false, saving = false, dirty = false;
+    // 项目列表用于显示目标市场参考；地域行只用于本次生成（每行一个地域和语言），不随方案保存
+    let projects = [], localeRows = [];
     const message = (id, text) => {
         const target = byId(editor.open ? "editor-" + id : id);
         for (const element of [byId(id), byId("editor-" + id)]) {
@@ -32,8 +34,8 @@
         return element;
     }
     async function loadOptions() {
-        const [projects, models] = await Promise.all([allItems("/projects"), allItems("/llm-channels")]);
-        channels = models;
+        const [projectItems, models] = await Promise.all([allItems("/projects"), allItems("/llm-channels")]);
+        projects = projectItems; channels = models;
         form.elements.projectId.replaceChildren(new Option("请选择项目", ""));
         projects.forEach(project => form.elements.projectId.add(new Option(project.name, project.id)));
         byId("generation-channel").replaceChildren(new Option("按数据库优先级选择", ""));
@@ -133,7 +135,9 @@
                 checkbox.addEventListener("change", () => { if (!checkbox.checked) checkbox.disabled = true; }, {once:true});
             }
         }
-        byId("generation-language").value = questions[0]?.language || "中文";
+        // 母题只用来改写和审核对照，默认中文，不随方案里已有问题的语言变化；生成时至少一个地域，打开时先放一行空地域
+        byId("generation-language").value = "中文";
+        localeRows = [{region:"", language:""}]; renderLocaleRows(); renderProjectMarket();
         renderQuestions(); updateCount();
         document.body.classList.add("plan-dialog-open");
         editor.querySelector(".dialog-body").scrollTop = 0;
@@ -152,7 +156,7 @@
         const table = document.createElement("table"); table.className = "question-table";
         if (candidate) table.classList.add("candidate-table");
         const head = table.createTHead().insertRow();
-        const titles = ["序号", "问题内容", "来源", "提问意图", "品牌范围", "语言"];
+        const titles = ["序号", "问题内容", "来源", "提问意图", "品牌范围", "语言", "地域"];
         if (candidate) titles.unshift("选用");
         else if (!viewOnly) titles.push("操作");
         titles.forEach(title => {
@@ -169,7 +173,7 @@
             row.insertCell().textContent = index + 1;
             if (viewOnly && !candidate) {
                 [question.text, question.source === "GENERATED" ? "模型生成" : "人工维护",
-                    intentLabels[question.intent], scopeLabels[question.brandScope], question.language]
+                    intentLabels[question.intent], scopeLabels[question.brandScope], question.language, question.region || "不分地域"]
                     .forEach(value => { row.insertCell().textContent = value; });
                 return;
             }
@@ -177,7 +181,14 @@
             textarea.rows = 2; textarea.value = question.text; textarea.maxLength = 2000; textarea.required = !candidate;
             textarea.setAttribute("aria-label", prefix + "内容");
             textarea.addEventListener("input", () => { question.text = textarea.value; if (!candidate) markDirty(); });
-            row.insertCell().append(textarea);
+            const textCell = row.insertCell();
+            textCell.append(textarea);
+            // 按地域改写的候选附上对应母题，审核时对照意图；母题不随问题保存
+            if (question.baseText) {
+                const base = document.createElement("p");
+                base.className = "question-base"; base.textContent = "母题：" + question.baseText;
+                textCell.append(base);
+            }
             row.insertCell().textContent = question.source === "GENERATED" ? "模型生成" : "人工维护";
             for (const [key, title, choices] of [["intent", "提问意图", intentLabels], ["brandScope", "品牌范围", scopeLabels]]) {
                 const select = labeledSelect(title, choices, question[key], value => question[key] = value).querySelector("select");
@@ -188,6 +199,13 @@
             language.setAttribute("aria-label", prefix + "语言");
             language.addEventListener("input", () => { question.language = language.value; if (!candidate) markDirty(); });
             row.insertCell().append(language);
+            // 地域可空，空白保存为不分地域；输入时提示本方案已用过的地域，减少同一地域的不同写法
+            const region = document.createElement("input");
+            region.value = question.region || ""; region.maxLength = 50; region.placeholder = "不分地域";
+            region.setAttribute("list", "region-options");
+            region.setAttribute("aria-label", prefix + "地域");
+            region.addEventListener("input", () => { question.region = region.value; if (!candidate) markDirty(); });
+            row.insertCell().append(region);
             if (!candidate) row.insertCell().append(button("删除", () => { questions.splice(index, 1); markDirty(); renderQuestions(); }));
         });
         return table;
@@ -208,7 +226,67 @@
         byId("question-page").value = questionPage;
         byId("question-previous").disabled = questionPage === 0;
         byId("question-next").disabled = questionPage === pages - 1;
+        renderRegionOptions();
         updateCount();
+    }
+    // 地域输入提示：本方案问题、候选和地域行里出现过的地域，减少同一地域的不同写法
+    function renderRegionOptions() {
+        const regions = new Set([...questions, ...candidates, ...localeRows].map(item => (item.region || "").trim()).filter(Boolean));
+        byId("region-options").replaceChildren(...[...regions].map(region => new Option(region)));
+    }
+    // 项目目标市场、目标语言原文只作选择地域和语言的参考，不自动拆成地域，也不发给制题模型
+    function renderProjectMarket() {
+        const project = projects.find(item => item.id === Number(form.elements.projectId.value));
+        byId("project-market").textContent = project
+            ? "项目目标市场：" + (project.targetMarket || "未填写") + "；目标语言：" + (project.targetLanguage || "未填写") + "（仅供参考）"
+            : "项目目标市场：请先选择项目";
+    }
+    // 按地域本地化的设置行：每行一个地域和一个语言，语言留空用该地域常用语言；只影响本次生成
+    function renderLocaleRows() {
+        const container = byId("locale-rows"); container.replaceChildren();
+        localeRows.forEach((row, index) => {
+            const line = document.createElement("div"); line.className = "locale-row";
+            const region = document.createElement("input");
+            region.value = row.region; region.maxLength = 50; region.placeholder = "地域，如 美国、东南亚";
+            region.setAttribute("list", "region-options"); region.setAttribute("aria-label", "第 " + (index + 1) + " 行地域");
+            region.addEventListener("input", () => { row.region = region.value; });
+            const language = document.createElement("input");
+            language.value = row.language; language.maxLength = 100; language.placeholder = "语言，留空用当地常用语言";
+            language.setAttribute("aria-label", "第 " + (index + 1) + " 行语言");
+            language.addEventListener("input", () => { row.language = language.value; });
+            line.append(region, language, button("删除", () => { localeRows.splice(index, 1); renderLocaleRows(); }));
+            container.append(line);
+        });
+        renderRegionOptions();
+    }
+    // 至少一个地域，每行必须填写地域，同一地域和语言的组合不重复；生成总数不能超过方案剩余容量，避免生成后无法加入
+    function validateLocaleRows(rows, count) {
+        if (!rows.length) return "请至少添加一个地域";
+        if (rows.some(row => !row.region)) return "请填写每一行的地域，或删除空行";
+        if (new Set(rows.map(row => normalize(row.region) + "|" + normalize(row.language))).size !== rows.length) return "地域和语言的组合不能重复";
+        const remaining = 500 - questions.length;
+        if (rows.length && count * rows.length > remaining) {
+            return "本次将生成 " + count * rows.length + " 个候选，超过方案剩余容量 " + remaining + " 个，请减少生成数量或地域";
+        }
+        return "";
+    }
+    // 逐行把母题改写到各地域，一次请求只改写一个地域并显示进度；任一地域失败则本次生成失败，已有问题和候选保留
+    async function localizeCandidates(projectId, channelCode, rows, base, startedRevision) {
+        const result = [];
+        for (const [index, row] of rows.entries()) {
+            byId("generation-status").textContent = "正在按地域改写：" + row.region + "（" + (index + 1) + "/" + rows.length + "）";
+            let localized;
+            try {
+                localized = await request("/diagnosis-plans/localize-questions", {method:"POST",
+                    body:JSON.stringify({projectId, channelCode, region:row.region, language:row.language || null, questions:base})});
+            } catch (exception) {
+                throw new Error(row.region + " 改写失败：" + exception.message);
+            }
+            if (revision !== startedRevision) return null;
+            // 改写结果与母题按顺序一一对应，记下母题供审核对照
+            localized.forEach((question, position) => result.push({...question, baseText:base[position].text}));
+        }
+        return result;
     }
     function updateCount() {
         const selected = [...byId("test-channels").querySelectorAll("input:checked")].length;
@@ -218,16 +296,25 @@
     byId("generate").addEventListener("click", async () => {
         if (generating || saving) return;
         const projectId = Number(form.elements.projectId.value), count = Number(byId("generation-count").value), language = byId("generation-language").value.trim();
-        if (!projectId || !Number.isInteger(count) || count < 1 || count > 100 || !language) { error("请先选择项目，并填写 1 到 100 的生成数量及语言"); return; }
-        const startedRevision = revision;
+        if (!projectId || !Number.isInteger(count) || count < 1 || count > 100 || !language) { error("请先选择项目，并填写 1 到 100 的生成数量及母题语言"); return; }
+        const rows = localeRows.map(row => ({region:row.region.trim(), language:row.language.trim()}));
+        const rowError = validateLocaleRows(rows, count);
+        if (rowError) { error(rowError); return; }
+        const startedRevision = revision, channelCode = byId("generation-channel").value || null;
         generating = true; byId("generate").disabled = true; error("");
-        byId("generation-status").textContent = "正在生成候选问题，请稍候…";
+        byId("generation-status").textContent = "正在生成母题，请稍候…";
         try {
-            const result = await request("/diagnosis-plans/generate-questions", {method:"POST", body:JSON.stringify({projectId, count, language, channelCode:byId("generation-channel").value || null})});
+            // 1. 生成一套母题，告诉模型本次覆盖哪些地域；再逐行改写到各地域，母题本身不进候选
+            const base = await request("/diagnosis-plans/generate-questions", {method:"POST",
+                body:JSON.stringify({projectId, count, language, channelCode, regions:rows.map(row => row.region)})});
             if (revision !== startedRevision) return;
+            const result = await localizeCandidates(projectId, channelCode, rows, base, startedRevision);
+            if (!result) return;
+            // 2. 展示候选供审核，确认后才加入问题集合
             candidates = result; byId("candidate-list").replaceChildren();
             byId("candidate-list").append(questionTable(candidates, 0, true));
             byId("candidates-panel").hidden = false;
+            renderRegionOptions();
             byId("generation-status").textContent = "已生成 " + candidates.length + " 个候选，请审核后加入集合。";
         } catch (exception) {
             if (revision === startedRevision) {
@@ -243,7 +330,9 @@
         for (const candidate of selected) {
             if (!candidate.text.trim() || !candidate.language.trim()) { error("候选内容和语言不能为空"); return; }
             const key = normalize(candidate.text);
-            if (!existing.has(key)) { added.push({...candidate}); existing.add(key); }
+            // 母题只用于审核对照，不随问题保存
+            const {baseText, ...question} = candidate;
+            if (!existing.has(key)) { added.push(question); existing.add(key); }
         }
         if (questions.length + added.length > 500) { error("每个方案最多 500 个问题"); return; }
         if (added.length) questionPage = Math.floor(questions.length / questionPageSize);
@@ -253,7 +342,7 @@
     });
     byId("add-question").addEventListener("click", () => {
         if (questions.length >= 500) { error("每个方案最多 500 个问题"); return; }
-        questions.push({text:"", source:"MANUAL", intent:"RECOMMENDATION", brandScope:"NON_BRAND", language:byId("generation-language").value.trim() || "中文"});
+        questions.push({text:"", source:"MANUAL", intent:"RECOMMENDATION", brandScope:"NON_BRAND", language:byId("generation-language").value.trim() || "中文", region:""});
         questionPage = Math.floor((questions.length - 1) / questionPageSize);
         markDirty(); renderQuestions(); byId("question-list").querySelector("tbody tr:last-child textarea").focus();
     });
@@ -289,7 +378,12 @@
     });
     form.elements.projectId.addEventListener("change", () => {
         revision++; candidates = []; byId("candidates-panel").hidden = true; markDirty();
+        renderProjectMarket();
         byId("generation-status").textContent = "项目已切换，请确认现有问题是否适用于新项目。";
+    });
+    byId("add-locale").addEventListener("click", () => {
+        localeRows.push({region:"", language:""}); renderLocaleRows();
+        byId("locale-rows").querySelector(".locale-row:last-child input").focus();
     });
     form.elements.name.addEventListener("input", markDirty);
     form.elements.repeatCount.addEventListener("input", () => { markDirty(); updateCount(); });

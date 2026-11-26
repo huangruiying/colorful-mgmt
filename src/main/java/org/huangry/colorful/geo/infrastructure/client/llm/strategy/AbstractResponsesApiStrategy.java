@@ -32,8 +32,9 @@ import org.springframework.http.client.ClientHttpResponse;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 发送 Responses 请求并校验、解析最终回答和引用。
- * 复用当前业务使用的基础协议；子策略调整请求参数，连接资源使用共用 HTTP 客户端。
+ * OpenAI Responses 协议的策略父类：组装并发送请求，校验、解析最终回答和引用。
+ * <p>子策略调整厂商请求参数；请求要求联网时，由父类调用子策略的 {@link #addWebSearchParams(Map)} 挂载搜索参数，
+ * 子策略不判断调用用途。连接资源使用共用 HTTP 客户端。</p>
  */
 @Slf4j
 public abstract class AbstractResponsesApiStrategy implements LLMStrategy {
@@ -197,14 +198,15 @@ public abstract class AbstractResponsesApiStrategy implements LLMStrategy {
     }
 
     /**
-     * 组装单轮 input，并请求不保存会话，工具参数由本策略显式决定。
+     * 组装单轮 input，并请求不保存会话；请求要求联网时再挂载子策略的搜索参数。
      * <p>输出上限使用 max_output_tokens，包含接口计入的推理 token；
      * 随机性仅在用户填写时发送，由实际模型校验是否接受。</p>
-     * @param request 本次独立问题
+     * @param request 本次独立问题，enableWebSearch 决定是否挂载搜索参数
      * @param channel 已选中的渠道配置
-     * @return Responses 基础请求体
+     * @return Responses 请求体；不联网时不含 tools、tool_choice
      */
     protected Map<String, Object> buildRequestBody(LLMQueryRequest request, GeoLlmChannelEntity channel) {
+        // 1. 单轮问题与生成参数
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("model", channel.getModelName());
         body.put("input", List.of(Map.of(
@@ -219,7 +221,19 @@ public abstract class AbstractResponsesApiStrategy implements LLMStrategy {
         if (channel.getTemperature() != null) {
             body.put("temperature", channel.getTemperature());
         }
+        // 2. 只有调用方要求联网时才挂载搜索参数；制题、判定等内部任务不联网，避免多花搜索时间和费用
+        if (request.enableWebSearch()) {
+            addWebSearchParams(body);
+        }
         return body;
+    }
+
+    /**
+     * 挂载厂商的联网搜索参数，仅在请求要求联网时由 buildRequestBody 调用；默认不支持联网，不添加任何参数。
+     * <p>支持联网的子策略重写本方法，只负责把“要联网”翻译成自己的参数，不判断调用用途。</p>
+     * @param body 已含基础字段的请求体，搜索参数直接添加在上面
+     */
+    protected void addWebSearchParams(Map<String, Object> body) {
     }
 
     /**

@@ -1,0 +1,105 @@
+# colorful-mgmt 架构与代码约定
+
+本文件记录当前 colorful-mgmt 项目与用户确认的长期架构选择和实现约定，属于项目记忆。修改本项目代码前必须阅读；与通用模板规则冲突时，以本文件及用户最新明确要求为准。临时进度和验证结果写入 `.doc/HANDOFF.md`。
+
+本项目是独立的 Java 17 / Spring Boot 3 服务（MyBatis-Plus、MySQL、Playwright、静态管理页面），POM、目录和运行配置以当前仓库为准。本文件只放跨模块的工程约定；单个模块的设计决策见文末「模块设计决策」。
+
+## 分层与数据流
+
+以下记录本项目实际采用的分层职责；模型目录与跨层调用统一遵守 [通用模型归属规范](../rules/engineering.md#模型归属)。当前实现未完成全面整改，不能把规范生效当成代码已迁移。
+
+```text
+presentation/controller：HTTP 接收、响应与错误映射
+application/*Business：组织完整用例、决定跨 Service 的执行顺序、分页输入和接口模型转换
+domain/service：处理各自领域能力的业务规则，通过基础设施持久化能力访问数据库
+infrastructure/repository：封装 DAO、ORM 与存储映射，提供持久化能力
+infrastructure/client：外部协议、平台及浏览器适配
+```
+
+- 2026-11-22 用户确认：Business 负责完整用例与跨 Service 协作；领域 Service 负责自身业务规则，不接管应用用例的跨 Service 编排。
+- Business 之间禁止互相调用，包括同模块、跨模块与单向调用；需要复用时提取可复用领域能力或应用协作者，由各 Business 调用。应用协作者承载抽出的共同职责，不能作为调用另一个 Business 的转发入口。
+- 领域 Service 之间禁止互相调用，包括同模块、跨模块与单向调用；需要另一领域能力时，由 Business 分别调用并传递结果。不能借中间转发类、事件或回调绕开这一边界；此处限制的是领域 Service，领域 Service 调用基础设施持久化能力不属于被禁的领域服务互调，不按类名是否带 Service 判断所属层。
+- 后台任务也统一经过 application 层，由 Business 或应用执行器组织用例；Worker、定时触发器和消息消费入口只负责领取、调度及执行生命周期，不直接组织领域业务步骤。应用执行器可按已确认的用例边界协调多个领域 Service，领域 Service 互调限制仍按上一条执行。
+- 共享业务规则协作者与接口定义采用 [通用开发规范](../rules/engineering.md) 的要求；不能因协作者不叫 Service 就借其绕过领域调用边界，也不因触发方式不同复制一套业务规则。
+- 业务规则协作者放在 `domain/service/<业务>/` 下，按实际职责命名，如 `ChannelAvailabilityPolicy`（仅演示命名形式，不代表已有该类）；不另设 `domain/policy/`。协作者的数据模型仍按通用模型归属规范统一放 `domain/model/`，不在 service 下另建 model 或用内部业务 DTO 绕过要求。
+- 领域 Service 不直接调用 DAO 或继承 ORM 持久化基类；DAO 调用和数据库实体的内部存储映射收在基础设施持久化能力内。领域与基础设施契约的转换仍按通用模型归属规范执行，不要求基础设施引用领域模型。
+- 2026-11-22 用户确认采用 [通用事务与外部调用规范](../rules/engineering.md#事务与外部调用)，事务归属、HTTP 拆分及恢复边界只在该处维护。
+- 上述职责是确认后的目标约束，既有代码是否符合须按实际改动范围检查；本次不迁移业务实现，也不代表可靠任务或 outbox 已实现。
+
+## 模型归属与跨层调用
+
+本项目采用 [通用模型归属规范](../rules/engineering.md#模型归属)，不在此维护第二份目录表或边界规则。
+
+- 2026-11-22 用户确认严格执行，旧的简单 CRUD 数据库实体直通、Request→Entity→Response 直接穿过 Service 的约定已被替代。
+- 当前仅完成规范调整，现存模型位置、能力签名及 ORM 使用尚未全面审计或迁移；既有代码不能据此视为符合。
+- 本项目目前没有获准绕过通用模型归属要求的例外。模块特有的落实事项记在对应模块文件，实际迁移按任务授权执行。
+
+## 转换与隔离
+
+- 输入限制、密钥隔离、协议适配有实际价值，不能在简化时删掉。
+- 不使用 `BeanUtils.copyProperties` 等按属性名隐式复制；字段显式赋值，不为转换新增无必要的框架或中间对象。
+- 不引入 MapStruct 等映射框架（2026-10-17 用户确认）：同名自动映射可能让敏感字段因响应增加同名属性而输出。转换边界与职责按通用模型规范执行。
+
+## 命名与依赖注入
+
+- 表名采用模块前缀，实体、DAO、持久化 Service 与完整表名一致，例如：
+
+| 表名 | 实体 | DAO | Service |
+|---|---|---|---|
+| `geo_llm_channel` | `GeoLlmChannelEntity` | `GeoLlmChannelDao` | `GeoLlmChannelService` |
+| `geo_project_info` | `GeoProjectInfoEntity` | `GeoProjectInfoDao` | `GeoProjectInfoService` |
+
+- 接口输入命名 `XxxRequest`，接口输出命名 `XxxResponse`。只有独立于接口的业务命令才使用 `XxxCommand`，不为命名增加 `Request → Command` 转换。
+- 合并或修改职责后同步类名、方法名和注释，不保留已经失真的 `LoginService` 等名称。
+- Spring 依赖始终使用 `jakarta.annotation.Resource` 字段注入；不使用构造器注入或 `@RequiredArgsConstructor` 注入依赖。注入后的初始化使用 `@PostConstruct`。
+- Lombok 可用于数据模型及日志；枚举构造参数使用 `@RequiredArgsConstructor` 不属于 Spring 依赖注入。
+- 控制器处理方法与所调用的 Business 方法同名；动词与变量语义见 [命名规范](../rules/naming.md)。
+- 业务对象在项目内可能同名时带上所属对象：报告分析表也带 result，所以单条诊断结果写 `TaskResult`（`listTaskResults`、`getTaskResult`），与已有的 `DiagnosisTaskResultStatus` 一致。
+
+## 方法与可读性
+
+- 同一基础设施边界内复用已有 MyBatis-Plus 能力，例如 `getById`；不新增无职责的转发方法。为隔离数据库实体与领域模型而做的查询结果转换属于必要边界，不能据此删除。记录缺失判断由需要该业务语义的位置负责。
+- 避免重复查询和同一模型的无意义二次复制；不同层契约的必要映射必须保留。保存后为取得数据库生成的 ID、时间而回读，有明确用途，可保留。
+- 状态更新只修改目标字段，避免把旧实体全量回写覆盖其他配置。
+- 2026-11-22 用户确认采用 [职责与结构规范](../rules/engineering.md#职责与结构) 中的业务阶段私有方法拆分和按职责拆类要求；主流程、复用与抽象判断只在该处维护。阶段提取不免除 [Java 注释](../rules/comments/comment-java.md) 的入口分段与编号要求；日志和失败边界见 [可靠性规范](../rules/reliability.md)。
+- 不打印问题原文、回答原文或凭据；模型密钥的具体隔离契约见大模型模块决策。
+
+## 列表与分页
+
+- 跨能力的列表、详情查询严格由 Business 分别调用各领域 Service 批量读取，再组装接口输出；不以只读、复杂聚合或联表效率为由，让 Business 直接调用基础设施查询能力，也不让单个领域 Service 绕过其他领域能力读取其数据。领域 Service 仍通过各自基础设施持久化能力查询；批量结果按业务标识关联，避免逐条调用形成 N+1 查询。
+- 所有分页列表接口统一返回 `infrastructure/common/model/PageResponse<T>`（`items`、`total`、`page`、`size`），不再为每个模块新建 `XxxPage`。
+- 分页参数统一用 `infrastructure/common/model/PageQuery`：Business 用接口入参 `new PageQuery(page, size[, keyword])` 构造，构造时校验页码从 0 开始、`size` 为 1～100、关键词去空白且最多 200 字，空白视为未填写；不再各自写校验。领域 Service 接收 `PageQuery`，由基础设施持久化能力使用 `.last(pageQuery.limitClause())` 或 `offset()` 实现分页，领域 Service 不直接操作 ORM。Business 在接口输出边界用 `pageQuery.toResponse(items, total)` 组装结果；列表和总数使用同一筛选条件，跨能力组装不能在分页后追加筛选或排序而造成总数、顺序与分页语义不一致。
+- 列表行只给列表用时建行类，命名 `XxxPageItem`（如 `ContentOptimizationRecordPageItem`）；模型所属层按通用规范确定；与创建、详情共用同层同职责模型时可复用，不为列表再复制一份。
+- 列表方法注释直白写“XX列表（分页）查询，可按 X 筛选”；不用“摘要”指代列表行，不在不负责的层写“避免加载正文”等说明。
+
+## 接口异常响应
+
+- 不引入 BizException 或新的业务错误码响应信封。所有接口出错统一返回 Spring `ProblemDetail`，前端读取 `detail` 字段展示原因，不再返回 `{"message": ...}` 等自定义结构。
+- `IllegalArgumentException → 400`、`NoSuchElementException → 404` 由 `presentation/controller/GlobalExceptionHandler` 统一处理并记 warn 日志，各 Controller 不再重复编写。
+- 含模块语义的映射（如发布记录 `IllegalStateException → 409`、诊断模块存储失败 500、`LLMClientException` 的提示文案、渠道编码重复 409）留在对应 Controller，Controller 内处理优先于全局处理。
+- Controller 单测使用 `standaloneSetup` 时需 `.setControllerAdvice(new GlobalExceptionHandler())`，否则 400/404 断言不生效。
+
+## 登录与访问控制
+
+- 管理后台只有一个登录账号，不提供注册；账号来自环境变量 `GEO_ADMIN_USERNAME`、`GEO_ADMIN_PASSWORD_HASH`（BCrypt 哈希），不建用户表，工程要求是未配置哈希时服务拒绝启动；当前配置是否仍有默认值须现场核对，不能把要求当作已实现。
+- 访问控制集中在 `infrastructure/config/security/AdminSecurityConfig`：除登录页及其样式、脚本和 `robots.txt` 外全部要求登录；新增公开资源只改这里的放行清单。未登录访问页面跳转登录页，访问接口返回 401 ProblemDetail；同一 IP 15 分钟内连续失败 5 次锁定 15 分钟（`LoginAttemptLimiter`）。
+- 写请求必须带跨站令牌：页面接口请求统一走 `shared/http.js` 的 `AdminHttp.requestJson`（自动附带 `X-XSRF-TOKEN`，401 跳转登录页），不直接使用 `fetch`；表单提交用 `AdminHttp.csrfToken()` 填 `_csrf`。新页面必须引入 `shared/http.js`、`shared/navigation.js`（含退出入口）与 `shared/browser-takeover.js`（人工接管弹窗）。
+- 所有响应带 `X-Robots-Tag: noindex, nofollow`，并提供禁止抓取的 `robots.txt`；这只约束遵守规则的爬虫，真正的访问控制仍是登录。
+
+## 模块设计决策
+
+单个模块的设计决策按模块分文件维护，改到对应模块时读取（按本表及各文件首段触发条件读取）。下表的原章节以前写在本文件，2026-11-19 原文移入对应文件，旧文档里“项目约定「…」”的引用按此表查找：
+
+| 模块 | 文件 | 原章节 |
+|---|---|---|
+| 诊断方案、任务、结果与报告 | [modules/diagnosis.md](modules/diagnosis.md) | 诊断模块术语与命名线、诊断方案制题、诊断报告分段执行、诊断报告页面与导出网页 |
+| 提示词管理 | [modules/prompt-template.md](modules/prompt-template.md) | 提示词管理 |
+| 大模型渠道与调用 | [modules/llm.md](modules/llm.md) | 已确认的大模型设计 |
+| 浏览器人工接管 | [modules/browser-takeover.md](modules/browser-takeover.md) | 浏览器人工接管 |
+
+新增模块决策写入 memory 中对应模块文件；新建主题时同步项目记忆索引，本表仅保留旧章节查找关系。
+
+## 接口输出与决策边界
+
+- 成功响应直接返回业务对象或列表，不套统一业务码信封；接口模型归属与依赖方向引用通用模型规范。
+- 本文件记录跨模块项目约定，模块决策放 memory/modules。通用工程要求放 rules；同一要求只维护一处，不在入口、流程与记忆重复抄写。

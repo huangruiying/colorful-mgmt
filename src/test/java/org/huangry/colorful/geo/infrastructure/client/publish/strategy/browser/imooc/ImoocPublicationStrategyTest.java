@@ -1,6 +1,5 @@
 package org.huangry.colorful.geo.infrastructure.client.publish.strategy.browser.imooc;
 
-import org.huangry.colorful.geo.infrastructure.client.publish.browser.imooc.ImoocBrowserClient;
 import org.huangry.colorful.geo.infrastructure.client.publish.model.PlatformPublicationRequest;
 import org.huangry.colorful.geo.infrastructure.client.publish.model.PrePublicationRequest;
 import org.huangry.colorful.geo.infrastructure.client.publish.model.PublicationResult;

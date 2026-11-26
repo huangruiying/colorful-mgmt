@@ -68,7 +68,7 @@ class DiagnosisTaskWorkerTest {
         verify(service, never()).updateResultSucceeded(any(), any(), anyLong());
         verify(client, times(1)).query(any(LLMQueryRequest.class), same(channel));
     }
-    /** 每个问题独立请求，首个超时不重试，后续问题继续落库。 */
+    /** 每个问题独立请求且要求联网（诊断测的是联网后的回答），首个超时不重试，后续问题继续落库。 */
     @Test
     void shouldContinueAfterModelFailureWithoutRetryingOrAddingContext() throws Exception {
         var service = mock(GeoDiagnosisTaskService.class);
@@ -79,13 +79,13 @@ class DiagnosisTaskWorkerTest {
         var channel = new GeoLlmChannelEntity(); channel.setId(7L);
         when(service.claimNextResult(5L)).thenReturn(first, second, null);
         when(service.confirmTaskChannel(any())).thenReturn(channel);
-        when(client.query(new LLMQueryRequest("问题一"), channel)).thenThrow(
+        when(client.query(LLMQueryRequest.withWebSearch("问题一"), channel)).thenThrow(
                 new LLMClientException("private-remote-message", new SocketTimeoutException("private-key")));
         var response = LLMResponse.withoutCitations("独立回答");
-        when(client.query(new LLMQueryRequest("问题二"), channel)).thenReturn(response);
+        when(client.query(LLMQueryRequest.withWebSearch("问题二"), channel)).thenReturn(response);
         ReflectionTestUtils.invokeMethod(worker, "execute", 5L);
-        verify(client, times(1)).query(new LLMQueryRequest("问题一"), channel);
-        verify(client, times(1)).query(new LLMQueryRequest("问题二"), channel);
+        verify(client, times(1)).query(LLMQueryRequest.withWebSearch("问题一"), channel);
+        verify(client, times(1)).query(LLMQueryRequest.withWebSearch("问题二"), channel);
         verify(service).updateResultFailed(eq(first), eq("模型调用超时，请检查统一 HTTP 超时配置"), anyLong());
         verify(service).updateResultSucceeded(eq(second), same(response), anyLong());
         verify(service).finishTask(5L);

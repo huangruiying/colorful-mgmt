@@ -290,8 +290,9 @@
         const projectFields = {name:"项目名称",websiteUrl:"官网",industry:"行业",coreFeatures:"核心功能",targetAudience:"目标用户",targetMarket:"目标市场",targetLanguage:"目标语言",sellingPoints:"主要卖点",pricing:"价格信息",aliases:"品牌别名",competitors:"竞争对手",keywords:"关键词"};
         content.append(detailTable("项目资料", ["资料项", "冻结值"], Object.entries(projectFields).map(([key, label]) => [label, project[key]])));
         const names = {MANUAL:"手动添加",GENERATED:"模型生成",NON_BRAND:"非品牌问题",BRAND:"品牌问题",COMPARISON:"对比",RECOMMENDATION:"推荐",PROBLEM_SOLVING:"解决问题",PURCHASE:"购买",TECHNICAL:"技术",AWARENESS:"认知"};
-        content.append(detailTable("诊断问题", ["序号", "问题", "来源", "意图", "品牌范围", "语言"], (snapshot.questions || []).map((question, index) =>
-            [index + 1, question.text, names[question.source] || question.source, names[question.intent] || question.intent, names[question.brandScope] || question.brandScope, question.language])));
+        // 地域为空或旧任务快照没有地域时，显示为不分地域
+        content.append(detailTable("诊断问题", ["序号", "问题", "来源", "意图", "品牌范围", "语言", "地域"], (snapshot.questions || []).map((question, index) =>
+            [index + 1, question.text, names[question.source] || question.source, names[question.intent] || question.intent, names[question.brandScope] || question.brandScope, question.language, question.region || "不分地域"])));
         for (const channel of snapshot.channels || []) {
             content.append(detailTable("模型配置 · " + (channel.channelName || "未命名渠道"), ["配置项", "冻结值"], [
                 ["渠道名称", channel.channelName], ["渠道编码", channel.channelCode], ["供应商", channel.providerCode], ["模型", channel.modelName],

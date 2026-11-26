@@ -11,7 +11,8 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 /**
- * 诊断方案管理入口；候选生成与保存分离，不调用被测渠道执行诊断。
+ * 诊断方案的管理接口：方案的创建、修改、查看、列表，以及候选问题的生成和按地域改写。
+ * <p>候选生成、改写与保存分离，不调用被测渠道执行诊断。</p>
  */
 @RestController
 @RequestMapping("/diagnosis-plans")
@@ -59,11 +60,25 @@ public class MgmtDiagnosisPlanController {
 	}
 
 	/**
-	 * 返回待确认的问题，生成成功也不会自动落库。
+	 * 按项目资料和本次地域生成一套母题，页面再逐个地域改写成候选；生成成功也不会自动落库。
+	 * <p>输入错误（含未提供地域）由全局处理返回 400；模型调用或生成结果不合格由本类 generationFailed 返回 502。</p>
+	 * @param request 项目、可选制题渠道、母题数量、母题语言与本次要改写到的地域
+	 * @return 母题，地域为空
 	 */
 	@PostMapping("/generate-questions")
 	public List<DiagnosisQuestion> generateQuestions(@RequestBody GenerateDiagnosisQuestionsRequest request) {
 		return business.generateQuestions(request);
+	}
+
+	/**
+	 * 把母题按一个地域改写成当地用户会问的问题，返回候选供审核，不落库。
+	 * <p>输入错误由全局处理返回 400；模型调用或改写结果不合格由本类 generationFailed 返回 502。</p>
+	 * @param request 项目、可选制题渠道、目标地域、可选语言与母题
+	 * @return 与母题一一对应的改写候选
+	 */
+	@PostMapping("/localize-questions")
+	public List<DiagnosisQuestion> localizeQuestions(@RequestBody LocalizeDiagnosisQuestionsRequest request) {
+		return business.localizeQuestions(request);
 	}
 
 	/**

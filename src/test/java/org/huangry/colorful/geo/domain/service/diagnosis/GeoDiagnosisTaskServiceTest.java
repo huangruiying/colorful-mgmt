@@ -5,7 +5,6 @@ import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.alibaba.fastjson.JSON;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.huangry.colorful.geo.application.diagnosis.model.CreateDiagnosisTaskRequest;
-import org.huangry.colorful.geo.infrastructure.client.llm.LLMStrategyRouter;
 import org.huangry.colorful.geo.infrastructure.repository.*;
 import org.huangry.colorful.geo.infrastructure.repository.entity.*;
 import org.junit.jupiter.api.BeforeEach;
@@ -78,7 +77,6 @@ class GeoDiagnosisTaskServiceTest {
     private final GeoProjectInfoDao projects = mock(GeoProjectInfoDao.class);
     private final GeoLlmChannelDao channels = mock(GeoLlmChannelDao.class);
     private final GeoDiagnosisPlanService planService = mock(GeoDiagnosisPlanService.class);
-    private final LLMStrategyRouter router = mock(LLMStrategyRouter.class);
     private final DiagnosisTaskSnapshots snapshots = new DiagnosisTaskSnapshots();
 
     private final List<GeoDiagnosisTaskResultEntity> inserted = new ArrayList<>();
@@ -102,7 +100,6 @@ class GeoDiagnosisTaskServiceTest {
         ReflectionTestUtils.setField(service, "projectDao", projects);
         ReflectionTestUtils.setField(service, "channelDao", channels);
         ReflectionTestUtils.setField(service, "planService", planService);
-        ReflectionTestUtils.setField(service, "router", router);
         ReflectionTestUtils.setField(service, "snapshots", snapshots);
 
         when(tasks.insert(any(GeoDiagnosisTaskEntity.class))).thenAnswer(call -> {
@@ -135,6 +132,19 @@ class GeoDiagnosisTaskServiceTest {
         assertEquals("OPENAI_RESPONSES", JSON.parseObject(task.getPlanSnapshot()).getJSONArray("channels").getJSONObject(0).getString("protocolType"));
         assertEquals(2, JSON.parseObject(task.getPlanSnapshot()).getJSONArray("questions").size());
         assertEquals("项目背景", JSON.parseObject(task.getPlanSnapshot()).getJSONObject("project").getString("coreFeatures"));
+    }
+
+    /** 问题地域随任务冻结：报告按快照里的地域分组，未设地域的问题保留空值，表示不分地域。 */
+    @Test
+    void shouldFreezeQuestionRegionIntoSnapshots() {
+        configure(2, 1, 1);
+        planService.listQuestions(1L).get(0).setRegion("德国");
+        var task = service.createTask(new CreateDiagnosisTaskRequest(1L, "region-test"));
+        var frozenQuestions = JSON.parseObject(task.getPlanSnapshot()).getJSONArray("questions");
+        assertEquals("德国", frozenQuestions.getJSONObject(0).getString("region"));
+        assertTrue(frozenQuestions.getJSONObject(1).containsKey("region"));
+        assertNull(frozenQuestions.getJSONObject(1).getString("region"));
+        assertEquals("德国", JSON.parseObject(inserted.get(0).getQuestionSnapshot()).getString("region"));
     }
 
     /** 最大诊断结果规模保持固定批次，不退化成四万次单条插入。 */

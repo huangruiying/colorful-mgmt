@@ -13,10 +13,14 @@ import java.util.*;
 import java.text.Normalizer;
 
 /**
- * 整体保存方案及其问题、渠道；三张表在同一事务内更新，避免半个方案。
+ * 诊断方案的领域服务：整体保存方案及其问题、渠道，并维护问题集合的校验规则。
+ * <p>三张表在同一事务内更新，避免半个方案；生成候选、按地域改写与保存方案共用同一套问题校验。</p>
  */
 @Service
 public class GeoDiagnosisPlanService extends ServiceImpl<GeoDiagnosisPlanDao, GeoDiagnosisPlanEntity> {
+	/** 问题地域的最大字符数，与 geo_diagnosis_plan_question.region 的列长度一致。 */
+	private static final int REGION_MAX_LENGTH = 50;
+
 	@Resource
 	private GeoDiagnosisPlanQuestionDao questionDao;
 	@Resource
@@ -88,11 +92,11 @@ public class GeoDiagnosisPlanService extends ServiceImpl<GeoDiagnosisPlanDao, Ge
 	}
 
 	/**
-	 * 生成与保存共用题目校验；非品牌题不能包含本项目名称或别名。
-	 * <p>单个方案 1 到 500 个问题；校验通过时就地去除问题与语言首尾空白，并按输入顺序回填排序号。</p>
+	 * 生成、按地域改写与保存共用题目校验；非品牌题不能包含本项目名称或别名。
+	 * <p>单个方案 1 到 500 个问题；校验通过时就地去除问题、语言与地域的首尾空白，地域空白改为空（不分地域），并按输入顺序回填排序号。</p>
 	 * @param project 诊断方案所属项目，提供项目名称与别名用于非品牌题检查
-	 * @param questions 待保存或生成的问题集合
-	 * @throws IllegalArgumentException 数量越界、内容重复、字段取值无效或非品牌题含项目名称时拒绝
+	 * @param questions 待保存、生成或改写的问题集合
+	 * @throws IllegalArgumentException 数量越界、内容重复、字段取值无效、地域超长或非品牌题含项目名称时拒绝
 	 */
 	public void validateQuestions(GeoProjectInfoEntity project, List<GeoDiagnosisPlanQuestionEntity> questions) {
 		// 1. 拒绝空集合和重复文本，不把非法候选静默过滤成成功。
@@ -102,7 +106,7 @@ public class GeoDiagnosisPlanService extends ServiceImpl<GeoDiagnosisPlanDao, Ge
 		List<String> brands = new ArrayList<>();
 		brands.add(project.getName());
 		if (project.getAliases() != null) brands.addAll(project.getAliases());
-		// 2. 独立校验来源、意图、品牌范围和语言，顺序以输入数组为准。
+		// 2. 独立校验来源、意图、品牌范围、语言和地域，顺序以输入数组为准。
 		for (int index = 0; index < questions.size(); index++) {
 			GeoDiagnosisPlanQuestionEntity question = questions.get(index);
 			if (question == null || question.getQuestionText() == null || question.getQuestionText().isBlank()
@@ -121,6 +125,7 @@ public class GeoDiagnosisPlanService extends ServiceImpl<GeoDiagnosisPlanDao, Ge
 			if (question.getLanguage() == null || question.getLanguage().isBlank() || question.getLanguage().length() > 100)
 				throw new IllegalArgumentException("问题语言必填，最多 100 字符");
 			question.setLanguage(question.getLanguage().strip());
+			question.setRegion(confirmQuestionRegion(question.getRegion()));
 			question.setSortOrder(index);
 			// 品牌比较同样不能计入自然发现，非品牌标记必须与文本一致。
 			if ("NON_BRAND".equals(question.getBrandScope()) && brands.stream()
@@ -128,6 +133,24 @@ public class GeoDiagnosisPlanService extends ServiceImpl<GeoDiagnosisPlanDao, Ge
 					.anyMatch(brand -> normalized.contains(normalizeText(brand))))
 				throw new IllegalArgumentException("非品牌问题包含项目名称或别名，请调整内容或品牌范围");
 		}
+	}
+
+	/**
+	 * 确认问题地域：去除首尾空白，空白视为不分地域。
+	 * <p>地域与语言相互独立，例如东南亚可以用英语提问；方案保存与按地域改写共用这条规则。</p>
+	 * @param region 页面填写或请求传入的地域，可为空
+	 * @return 去除首尾空白后的地域；未填写或只有空白时返回 null，表示不分地域
+	 * @throws IllegalArgumentException 地域超过 50 个字符
+	 */
+	public String confirmQuestionRegion(String region) {
+		if (region == null || region.isBlank()) {
+			return null;
+		}
+		String stripped = region.strip();
+		if (stripped.length() > REGION_MAX_LENGTH) {
+			throw new IllegalArgumentException("问题地域最多 50 字符");
+		}
+		return stripped;
 	}
 
 	/**

@@ -28,3 +28,52 @@
 
 - [ ] **1. 切到后台停止取画面**：接管窗口所在标签页切到后台时停止取画面，切回来恢复，避免多开窗口重复占用带宽；不依赖账号，随带宽优化一起做。
 - [ ] **2. 多账号**：账号表与登录、发布记录的发起人、接管按发起人分派、账号管理页。
+
+## 诊断报告解析内容的语言可选（2026-11-16 提出）
+
+**想法**：问题按地域本地化后，回答会有英语、德语、日语等多种语言。报告里解析出来的内容按用户选的语言展示；原文类内容保持原来的语言，不翻译。
+
+- 按所选语言展示：观点概括、维度名、规则问题与优化建议、⑦ 的品牌优化方向与打法等解析出来的文字。
+- 保持原样：问题原文、回答原文（「看回答」）、证据里的引用片段、来源网址与标题、品牌名。例如德国的题，问题和回答是德语，「看回答」「看证据」里仍是德语。
+
+**记录时的现状**：
+- 逐条判定（`ResultJudgePrompt`）没规定观点概括（`content`）和维度名（`dimension`）用什么语言，外语回答解析出来的可能直接是外语，报告里中外文混排；引用片段（`quote`）要求逐字照抄原文，已符合“原文不变”。
+- 维度归一（`DimensionPrompt`）把维度名统一成中文名称；归一失败时保留原名。
+- 优化建议（`AdvicePrompt`）没规定语言；地域提升策略（`RegionStrategyPrompt`）固定中文；页面上的固定文字是中文。
+
+- [x] **1. 可先做**：判定提示词规定观点概括和维度名的语言。2026-11-16 随第 2 条一起完成（默认中文）。
+- [x] **2. 语言可选**：2026-11-16 完成。生成报告时选「报告语言」（默认中文，存 `report_language`），判定、维度归一、建议、⑦ 策略按所选语言输出，不增加模型调用；用户确认页面固定文字与规则拼出的标题保持中文，不做页面多语言；旧报告记为中文、不重算。见 [诊断地域报告-详细设计](20261115_area_diagnosis/诊断地域报告-详细设计.md) 第三步。
+
+## 维度归一只输出需要合并的名称（2026-11-22 提出）
+
+**想法**：合并同义维度的提示词现在要求模型把每个原名都回显一遍（键为原名、值为归一名），维度数上千时输出可能超过模型单次输出上限，截断后整步失败、维度全部保持原名。
+
+**记录时的现状**：
+- 本机报告 14 有 416 个维度，一次调用通过，只有 55 个被合并；报告 15 有 1475 个，当时没有进度记录，成败不可考。
+- `DimensionPrompt.parseDimensionMapping` 已把“模型没列出的维度保持原名”当默认，所以只改模板就能生效。
+
+- [ ] **改模板**：在「提示词管理」把合并同义维度的提示词改成“只输出需要合并的名称，没列出的保持原名”，输出能缩到一成左右；改完用一份几百维度的任务重新生成报告内容验证。
+- [ ] **仍不够时再考虑分批**：分批两轮归一会让跨批的同义词合不到一起，复杂度高，没有真实需求前不做。
+
+## 平台登录与内容投放的分层整改（2026-11-22 提出）
+
+**想法**：`infrastructure/client/login`、`infrastructure/client/publish` 放在 client 层是对的（都用 Playwright 操作外部平台网页），但包里的内容不符合 2026-11-22 确认的 [分层约定](../.claude/memory/project-conventions.md#分层与数据流) 和 [模型归属规范](../.claude/rules/engineering.md#模型归属)，需要整改。
+
+**记录时的现状**：
+- 16 个 `XxxBrowserClient`（2026-11-22 已从 `publish/browser/<平台>/` 移到 `publish/strategy/browser/<平台>/`）都注入 `PlatformBrowserLoginDao`，各自查登录记录、判断是否已登录和登录态是否可用（如 `CsdnBrowserClient.requireSavedStorageState`），同一判断复制了 16 份。`PublicationRequest` 的类注释写明“凭据只能由对应基础设施客户端读取”，是当初有意做的隔离。
+- 客户端模型被上层直接使用：`PublicationResult` 出现在 Controller、Worker、Business 和两个领域服务里；`PublicationPlatformOption` 直接作为 `ContentPublishMgmtController.listConfiguredPlatforms` 的返回值；`ContentPrePublishWorker` 直接构造 `PublicationRequest`。
+- `PublicationRequest`（多平台投放）在客户端代码里没有使用，只有 `ContentPublicationService`、`ContentPrePublishWorker`、`TestPublistBusiness` 在用，实际是领域服务的入参。
+- `ContentPublishBusiness.listConfiguredPlatforms` 直接注入全部发布策略来列平台，绕过了领域服务。
+- `login` 包没有 `model/`，出参写成客户端类的内部 record：`BrowserLoginSnapshot` 3 份、`AccountProbe` 4 份，路由类里另有 `LoginSnapshot`；15 个发布客户端各有一份字段相同的 `DraftCreated`（微信公众号直接返回草稿 ID）。
+- 调用登录客户端的 `PlatformBrowserLoginService`（`domain/service/login`）直接注入 `PlatformBrowserLoginDao`。
+- 未展开核查：`PublicationPlatformType`、`PublicationTaskStatus` 等业务枚举放在 `infrastructure/common/enums`；发布客户端直接返回任务状态。
+
+**待定**：发布时的平台登录态由谁读取。
+- 方案 A（倾向）：登录领域服务取出可用登录态，发布领域服务把它放进单平台请求交给策略，客户端只用、不查；与大模型渠道“含密钥的配置在边界转成客户端模型后交给策略”的做法一致。需保证登录态不进日志、`toString` 和接口响应。
+- 方案 B：保留“只在基础设施层读凭据”，在 `client/login` 提供唯一的登录态读取能力，16 个客户端改为调用它；隔离方式不变，但“会话能不能用”仍在基础设施层判断。
+
+- [ ] **1. 登录态读取**：按选定方案去掉 16 个发布客户端里的 DAO 和重复判断；`PlatformBrowserLoginService` 改为经基础设施持久化能力访问登录表。
+- [ ] **2. 发布模型归属**：`PublicationRequest` 移到 `domain/model/`；领域服务调用策略后转回领域模型；Controller、Worker、Business 不再使用 `client/publish/model` 下的类型，接口输出放 `application/content/model/`。
+- [ ] **3. 可选平台列表**：由发布领域服务提供支持的平台，`ContentPublishBusiness` 改为调用领域服务。
+- [ ] **4. 客户端模型归位**：登录出参移到 `client/login/model/` 并合并字段相同的 record；发布客户端各自的 `DraftCreated` 合并为一份放 `client/publish/model/`。
+- [x] **发布客户端移入策略包**：2026-11-22 完成，各平台 `XxxBrowserClient` 与 `PublicationBrowserProperties` 原样移到 `publish/strategy/browser/`，与对应策略同包，代码逻辑不变，见 [验收记录](20261115_area_diagnosis/投放平台客户端移入策略包-验收.md)。

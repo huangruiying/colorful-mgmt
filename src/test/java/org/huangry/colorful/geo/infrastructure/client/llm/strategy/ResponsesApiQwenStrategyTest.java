@@ -24,7 +24,7 @@ class ResponsesApiQwenStrategyTest {
     void shouldRequireWebSearchWithStreaming() {
         var channel = channel();
         channel.setMaxTokens(2000);
-        var body = new ResponsesApiQwenStrategy().buildRequestBody(new LLMQueryRequest("2026年加油优惠App推荐哪些？"), channel);
+        var body = new ResponsesApiQwenStrategy().buildRequestBody(LLMQueryRequest.withWebSearch("2026年加油优惠App推荐哪些？"), channel);
 
         assertEquals(List.of(Map.of("type", "web_search")), body.get("tools"));
         assertEquals("required", body.get("tool_choice"));

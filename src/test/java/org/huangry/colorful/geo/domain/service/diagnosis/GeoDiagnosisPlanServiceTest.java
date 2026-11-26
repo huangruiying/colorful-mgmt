@@ -43,6 +43,27 @@ class GeoDiagnosisPlanServiceTest {
         assertThrows(IllegalArgumentException.class, () -> service.validateQuestions(project(), fiveHundred));
     }
 
+    /** 地域可空：去除首尾空白，空白和未填写都视为不分地域。 */
+    @Test
+    void shouldTrimRegionAndTreatBlankAsUnassigned() {
+        var trimmed = question("美国用户常买哪款手电？"); trimmed.setRegion(" 美国 ");
+        var blank = question("德国用户常买哪款手电？"); blank.setRegion("   ");
+        var missing = question("通用的手电推荐有哪些？");
+        service.validateQuestions(project(), List.of(trimmed, blank, missing));
+        assertEquals("美国", trimmed.getRegion());
+        assertNull(blank.getRegion());
+        assertNull(missing.getRegion());
+    }
+
+    /** 地域与数据库列长一致：50 字以内保存，超过拒绝。 */
+    @Test
+    void shouldRejectRegionLongerThanFiftyCharacters() {
+        var atLimit = question("五十字地域的问题？"); atLimit.setRegion("地".repeat(50));
+        assertDoesNotThrow(() -> service.validateQuestions(project(), List.of(atLimit)));
+        var tooLong = question("五十一字地域的问题？"); tooLong.setRegion("地".repeat(51));
+        assertThrows(IllegalArgumentException.class, () -> service.validateQuestions(project(), List.of(tooLong)));
+    }
+
     @Test
     void shouldRejectDisabledChannelsBeforeDatabaseWrite() {
         var projectDao = mock(GeoProjectInfoDao.class);

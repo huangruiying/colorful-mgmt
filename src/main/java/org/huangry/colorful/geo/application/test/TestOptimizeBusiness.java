@@ -3,7 +3,7 @@ package org.huangry.colorful.geo.application.test;
 import jakarta.annotation.Resource;
 import org.huangry.colorful.geo.domain.model.ContentOptimizationRequest;
 import org.huangry.colorful.geo.domain.model.ContentOptimizationResult;
-import org.huangry.colorful.geo.domain.service.optimization.ContentOptimizationService;
+import org.huangry.colorful.geo.domain.service.optimize.ContentOptimizeService;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -17,7 +17,7 @@ import java.util.List;
 public class TestOptimizeBusiness {
 
 	@Resource
-	private ContentOptimizationService contentOptimizationService;
+	private ContentOptimizeService contentOptimizationService;
 
 	public ContentOptimizationResult testOptimize(String text) {
 

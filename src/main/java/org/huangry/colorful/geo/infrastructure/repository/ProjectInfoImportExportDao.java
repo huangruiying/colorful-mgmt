@@ -49,7 +49,7 @@ public class ProjectInfoImportExportDao {
 			case QUESTION, PLAN_CHANNEL -> "plan_id IN (" + plans + ")";
 			case TASK -> "project_id = ? OR plan_id IN (" + plans + ")";
 			case RESULT, REPORT -> "task_id IN (" + tasks + ")";
-			case ANALYSIS -> "report_id IN (SELECT id FROM geo_diagnosis_task_report WHERE task_id IN (" + tasks + "))";
+			case ANALYSIS -> "report_id IN (SELECT id FROM geo_diagnosis_report WHERE task_id IN (" + tasks + "))";
 		};
 		Object[] parameters = switch (table) {
 			case TASK, RESULT, REPORT, ANALYSIS -> new Object[]{projectId, projectId};
@@ -96,14 +96,16 @@ public class ProjectInfoImportExportDao {
 
 	/**
 	 * 按白名单写入一行并获取新 ID；保留历史时间，不写入来源主键，其余字段按行内值原样写入。
+	 * <p>早期文件缺少的可缺省列（{@link ProjectInfoImportExportTable#OPTIONAL_COLUMNS}）不写，由数据库默认值补上。</p>
 	 *
 	 * @param table 固定迁移表
 	 * @param row   已校验及映射的行
 	 * @return 新生成的数据库 ID
 	 */
 	public long insertArchiveRow(ProjectInfoImportExportTable table, ObjectNode row) {
-		// 1. 排除来源主键，按显式字段构造参数化插入语句
-		var columns = table.columns.stream().filter(column -> ! column.equals("id")).toList();
+		// 1. 排除来源主键和文件中缺省的后加列，按显式字段构造参数化插入语句；后加列可能非空带默认值，写入空值会失败
+		var columns = table.columns.stream().filter(column -> ! column.equals("id"))
+				.filter(column -> row.has(column) || ! ProjectInfoImportExportTable.OPTIONAL_COLUMNS.contains(column)).toList();
 		String placeholders = columns.stream().map(column -> "?").collect(Collectors.joining(","));
 		String sql = "INSERT INTO " + table.table + " (" + String.join(",", columns) + ") VALUES (" + placeholders + ")";
 		GeneratedKeyHolder key = new GeneratedKeyHolder();

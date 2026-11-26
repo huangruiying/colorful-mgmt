@@ -27,7 +27,7 @@ class LLMStrategyRequestContractTest {
         assertFalse(optional.containsKey("max_tokens"));
     }
 
-    /** OpenAI Chat 的既有搜索例外只匹配精确模型名，普通模型参数不受影响。 */
+    /** OpenAI Chat 的既有搜索例外只匹配精确模型名，普通模型参数不受影响；搜索专用模型本身即搜索，不受请求的联网开关控制。 */
     @Test
     void shouldKeepOpenAiChatSearchLimitedToExistingModel() {
         var channel = channel();
@@ -42,11 +42,11 @@ class LLMStrategyRequestContractTest {
         assertFalse(search.containsKey("max_tokens"));
     }
 
-    /** 通用、OpenAI 和豆包的 Responses 请求工具互不串用，基础输入和可选参数保持一致。 */
+    /** 要求联网时，通用、OpenAI 和豆包的 Responses 请求工具互不串用，基础输入和可选参数保持一致。 */
     @Test
     void shouldKeepResponsesToolsSpecificToEachStrategy() {
         var channel = channel();
-        var request = new LLMQueryRequest("独立问题");
+        var request = LLMQueryRequest.withWebSearch("独立问题");
         var generic = new ResponsesApiCommonStrategy().buildRequestBody(request, channel);
         var openAi = new ResponsesApiOpenAiStrategy().buildRequestBody(request, channel);
         var doubao = new ResponsesApiDoubaoStrategy().buildRequestBody(request, channel);
@@ -63,6 +63,26 @@ class LLMStrategyRequestContractTest {
             assertEquals(300, body.get("max_output_tokens"));
             assertEquals(false, body.get("store"));
             assertEquals(body == doubao ? Boolean.TRUE : null, body.get("stream"));
+        }
+    }
+
+    /**
+     * 只有请求要求联网时才挂载搜索参数：诊断执行带 tools，制题、判定等内部任务的请求体不带 tools 与 tool_choice；
+     * 流式读取与是否联网无关。
+     */
+    @Test
+    void shouldMountWebSearchOnlyWhenRequested() {
+        var channel = channel();
+        List<AbstractResponsesApiStrategy> searchStrategies = List.of(new ResponsesApiOpenAiStrategy(), new ResponsesApiDoubaoStrategy(),
+                new ResponsesApiDeepSeekStrategy(), new ResponsesApiZhipuStrategy(), new ResponsesApiQwenStrategy());
+        for (var strategy : searchStrategies) {
+            var internal = strategy.buildRequestBody(new LLMQueryRequest("内部任务"), channel);
+            var diagnosis = strategy.buildRequestBody(LLMQueryRequest.withWebSearch("诊断问题"), channel);
+            String name = strategy.getClass().getSimpleName();
+            assertFalse(internal.containsKey("tools"), name);
+            assertFalse(internal.containsKey("tool_choice"), name);
+            assertTrue(diagnosis.containsKey("tools"), name);
+            assertEquals(diagnosis.get("stream"), internal.get("stream"), name);
         }
     }
 

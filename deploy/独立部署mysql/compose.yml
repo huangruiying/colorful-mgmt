@@ -13,7 +13,7 @@ services:
       - "127.0.0.1:3306:3306"
     volumes:
       - geo_mysql_data:/var/lib/mysql
-      - ../src/main/resources/db/mysql/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
+      - ../../src/main/resources/db/mysql/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 --silent"]
       interval: 5s
