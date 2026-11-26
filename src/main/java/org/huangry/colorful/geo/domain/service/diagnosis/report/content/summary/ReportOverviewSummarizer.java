@@ -15,8 +15,21 @@ import static org.huangry.colorful.geo.domain.service.diagnosis.report.content.s
 import static org.huangry.colorful.geo.domain.service.diagnosis.report.content.summary.ReportMetrics.round;
 
 /**
- * 诊断报告 ① 诊断概览：样本说明（有多少回答、判定成败、带来源、联网、模型与题数）和各模型核心指标。
- * <p>纯计算，不调用模型、不访问数据库。可见度类指标只统计非品牌问题，依赖判定的指标只统计判定成功的回答。</p>
+ * <pre>
+ * 诊断报告 ① 诊断概览的数字：这份报告分析了多少回答，以及每个模型的核心指标
+ *
+ * 负责：
+ * - 样本说明：有效回答、判定成败、带来源、联网、模型与题数，以及问题没有问到目标的点名题、对比题各有多少条回答
+ * - 各模型核心指标：非品牌问题的可见度、点名问题的品牌正面率、非品牌与对比问题的推荐份额
+ *
+ * 核心入口：
+ * - buildOverview(...)：ReportSummarizer 统计整份报告时调用
+ * - listModelMetrics(...)：ReportRegionSummarizer 传入单个地域的回答，复用同一口径
+ *
+ * 约束：
+ * - 纯计算，不调用模型、不访问数据库
+ * - 可见度类指标只统计非品牌问题，依赖判定的指标只统计判定成功的回答
+ * </pre>
  */
 @Component
 public class ReportOverviewSummarizer {
@@ -38,6 +51,8 @@ public class ReportOverviewSummarizer {
     /**
 
      * ① 样本说明：有效回答、判定成功与失败、带来源、实际联网、模型数、题数、最大重复执行次数，以及判定口径。
+     * 另给出两个数，让页面写明哪些回答没有按方案里的标记统计：offTargetBrandAnswers 标了点名题但问的不是目标（不计入品牌认知）；
+     * offTargetComparisonAnswers 标了对比题但问题里没有目标（维度胜负逐条核对是不是在说目标）。
      * @param facts 全部回答事实
      * @param judgeChannel 判定渠道快照
      * @param promptVersion 提示词版本
@@ -54,6 +69,8 @@ public class ReportOverviewSummarizer {
                 .fluentPut("models", facts.stream().map(ReportAnswerFacts::channelId).distinct().count())
                 .fluentPut("questions", facts.stream().map(ReportAnswerFacts::questionSortOrder).distinct().count())
                 .fluentPut("maxRepeat", facts.stream().mapToInt(fact -> fact.answer().result().getRepeatIndex()).max().orElse(0))
+                .fluentPut("offTargetBrandAnswers", countMatching(facts, ReportAnswerFacts::isOffTargetBrandQuestion))
+                .fluentPut("offTargetComparisonAnswers", countMatching(facts, ReportAnswerFacts::isOffTargetComparisonQuestion))
                 .fluentPut("judgeChannel", judgeChannel)
                 .fluentPut("promptVersion", promptVersion);
     }

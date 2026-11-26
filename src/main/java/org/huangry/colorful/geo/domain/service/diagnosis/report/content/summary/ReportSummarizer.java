@@ -4,6 +4,7 @@ import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
 import jakarta.annotation.Resource;
+import org.huangry.colorful.geo.domain.service.diagnosis.DiagnosisQuestionTextRule;
 import org.huangry.colorful.geo.domain.service.diagnosis.DiagnosisTaskSnapshots;
 import org.huangry.colorful.geo.domain.service.diagnosis.GeoDiagnosisReportService.ReportAnswer;
 import org.huangry.colorful.geo.domain.service.diagnosis.report.judge.ResultRuleAnalyzer;
@@ -18,7 +19,7 @@ import java.util.Map;
  * 诊断报告各页签统计数字的总入口：把报告的全部回答算成一份 summary，冻结在报告上供页面展示
  *
  * 负责：
- * - 把每条回答整理成统计用的事实（模型、问题分组、地域、是否提到目标、判定的品牌与来源）
+ * - 把每条回答整理成统计用的事实（模型、问题分组、问题有没有问到目标、地域、是否提到目标、判定的品牌与来源）
  * - 按页签交给各自的汇总类计算并拼在一起：⓪ ReportDashboardSummarizer，① ReportOverviewSummarizer，
  *   ② ReportVisibilitySummarizer，③ ReportBrandSummarizer，④ ReportCompetitorSummarizer，⑤ ReportSourceSummarizer，
  *   ⑥ 规则问题 ReportIssueSummarizer，⑦ 地域报告 ReportRegionSummarizer
@@ -29,6 +30,8 @@ import java.util.Map;
  * 约束：
  * - 纯计算，不调用模型、不访问数据库
  * - 结果冻结到报告 summary，之后不随规则或数据变化重算
+ * - 标为点名题、但问题原文没有出现目标名称或别名的回答不算点名题；标为对比题而问题里没有目标的，维度胜负逐条核对是不是在说目标。
+ *   两类回答的条数记在 sample，被排除的维度胜负条数记在 competitor.excludedDimensionResults，页面上都写明，不悄悄去掉
  *
  * 不负责：
  * - ⑥ 的建议文字与 ⑦ 各地域的提升策略：由后台执行器调用模型生成后写入（AdviceGenerator、RegionStrategyGenerator）
@@ -94,7 +97,7 @@ public class ReportSummarizer {
     }
 
     /**
-     * 把一条回答整理成各页签统计用的事实；判定失败的回答没有品牌与观点，但有来源。
+     * 把一条回答整理成各页签统计用的事实；判定失败的回答没有品牌与观点，但有来源。问题分组以外，还记下问题原文有没有问到目标。
      * @param answer 一条回答
      * @param targetNames 目标名称与别名
      * @return 统计用事实
@@ -110,10 +113,12 @@ public class ReportSummarizer {
         boolean mentioned = resultRuleAnalyzer.containsAnyName(answer.result().getAnswerText(), targetNames) || target != null;
         // 来源归类在判定前由规则完成，判定失败的回答也有，因此不看判定状态
         JSONArray sources = answer.analysis().getSources() != null ? JSON.parseArray(answer.analysis().getSources()) : new JSONArray();
+        // 问题有没有问到目标与方案保存时用同一个判断；只问竞品的题即使标成了点名题，也不能当作对目标的评价来统计
+        boolean targetNamed = DiagnosisQuestionTextRule.isTargetNamed(question.getString("text"), targetNames);
         // 地域取自冻结的问题快照，早于地域功能的快照没有 region，按不分地域处理
         return new ReportAnswerFacts(answer, channel.getLong("id"), channel.getString("channelName"), channel.getString("modelName"),
                 answer.result().getQuestionSortOrder(), question.getString("text"), question.getString("brandScope"), question.getString("intent"),
-                question.getString("region"), judged, mentioned, target, brands,
+                question.getString("region"), targetNamed, judged, mentioned, target, brands,
                 resultRuleAnalyzer.isSearchPerformed(answer.result().getRawResponse(), answer.result().getCitations()), sources);
     }
 }

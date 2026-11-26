@@ -20,11 +20,31 @@ import org.springframework.stereotype.Service;
 import java.util.*;
 
 /**
- * 诊断方案的制题服务：按项目资料和本次地域生成一套母题，再把母题按地域改写成当地用户会问的候选问题。
- * <p>只返回经方案规则校验的结果，不保存、不执行诊断；制题渠道与方案的被测渠道相互独立，调用不联网搜索。
- * 问题面向哪些地域、用什么语言只看本次输入，项目资料里的目标市场、目标语言只在页面展示，不发给模型。</p>
- * <p>两段提示词在「提示词管理」维护（诊断方案-生成母题提示词、诊断方案-按地域改写问题提示词），每次调用取当前版本，
- * 本类按变量名填入数据；未配置时明确报错，不调用模型。</p>
+ * <pre>
+ * 诊断方案的制题服务：调用模型按项目资料生成一套母题，再把母题按地域改写成当地用户会问的候选问题
+ *
+ * 负责：
+ * - 生成母题：把本次地域写进提示词，要求母题在这些地域都成立
+ * - 按地域改写：意图、品牌范围逐题沿用母题，模型只改写正文并给出语言
+ * - 严格解析模型输出，并用方案的问题校验规则把关
+ *
+ * 核心入口：
+ * - generate(...)：DiagnosisPlanBusiness 在方案页点「生成候选」时调用，每次一套母题
+ * - localizeQuestions(...)：DiagnosisPlanBusiness 逐个地域调用，把母题改写成该地域的候选
+ *
+ * 约束：
+ * - 只返回经方案规则校验的结果，不保存、不执行诊断；任何一条不合规则整批失败，不返回部分结果
+ * - 生成与改写的结果都要通过 GeoDiagnosisPlanService.validateQuestions：非品牌题不能出现项目名称或别名，
+ *   品牌认知题与竞品比较题必须出现
+ * - 制题渠道与方案的被测渠道相互独立，调用不联网搜索
+ * - 问题面向哪些地域、用什么语言只看本次输入，项目资料里的目标市场、目标语言只在页面展示，不发给模型
+ * - 两段提示词在「提示词管理」维护（诊断方案-生成母题提示词、诊断方案-按地域改写问题提示词），每次调用取当前版本，
+ *   本类按变量名填入数据；未配置时明确报错，不调用模型
+ *
+ * 不负责：
+ * - 问题校验规则本身（GeoDiagnosisPlanService.validateQuestions）
+ * - 保存方案与问题（DiagnosisPlanBusiness、GeoDiagnosisPlanService.savePlan）
+ * </pre>
  */
 @Service
 public class QuestionGenerateService {
@@ -119,7 +139,7 @@ public class QuestionGenerateService {
 
 	/**
 	 * 校验按地域改写的其余输入，全部在调用模型前完成，避免为无效请求产生费用。
-	 * @param project 项目资料，提供非品牌题的品牌名检查
+	 * @param project 项目资料，提供项目名称与别名，用于核对母题的品牌范围与原文是否相符
 	 * @param channelCode 可选制题渠道编码
 	 * @param language 已去除首尾空白的指定语言，可为空
 	 * @param questions 母题
@@ -136,7 +156,7 @@ public class QuestionGenerateService {
 		if (questions == null || questions.isEmpty() || questions.size() > MAX_QUESTIONS_PER_CALL) {
 			throw new IllegalArgumentException("每次改写 1 到 100 个问题");
 		}
-		// 母题与保存方案共用同一套规则，例如非品牌题不能含项目名称或别名
+		// 母题与保存方案共用同一套规则，例如非品牌题不能含项目名称或别名，品牌认知题与竞品比较题必须含
 		planService.validateQuestions(project, questions);
 	}
 

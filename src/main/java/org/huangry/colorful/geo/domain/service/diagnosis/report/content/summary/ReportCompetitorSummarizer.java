@@ -23,8 +23,22 @@ import static org.huangry.colorful.geo.domain.service.diagnosis.report.content.s
 import static org.huangry.colorful.geo.domain.service.diagnosis.report.content.summary.ReportMetrics.sortByIntDesc;
 
 /**
- * 诊断报告 ④ 竞品对比：目标与预设竞品谁更容易被提到和推荐、同题谁排在前面、竞品强在哪些场景、对比维度谁赢、竞品凭什么被推荐、有哪些新出现的同类产品。
- * <p>纯计算，不调用模型、不访问数据库；竞品名称在判定解析时已统一为预设名称，这里按名称精确匹配。</p>
+ * <pre>
+ * 诊断报告 ④ 竞品对比的数字：目标与预设竞品谁更容易被提到和推荐、谁排在前面、各比较维度谁赢、竞品凭什么被推荐
+ *
+ * 负责：
+ * - 目标与预设竞品同口径的提及率、推荐率、首推率（只算非品牌问题）
+ * - 同题胜率、竞品的优势场景、分维度胜负、竞品被推荐的理由、新出现的同类产品
+ *
+ * 核心入口：
+ * - buildCompetitorComparison(...)：ReportSummarizer 统计整份报告时调用
+ * - listBrandVisibilityByModel(...)：ReportRegionSummarizer 传入单个地域的回答，复用同一口径
+ *
+ * 约束：
+ * - 纯计算，不调用模型、不访问数据库；竞品名称在判定解析时已统一为预设名称，这里按名称精确匹配
+ * - 分维度胜负记的是“目标相对某个竞品的结果”。问题里没有目标的对比题（如只比较两个竞品）里，判定写下的胜负可能说的是竞品之间，
+ *   所以这类题逐条核对：胜负的概括或原文点到了目标才计入，其余不计入并给出条数，页面写明，不悄悄去掉
+ * </pre>
  */
 @Component
 public class ReportCompetitorSummarizer {
@@ -43,17 +57,20 @@ public class ReportCompetitorSummarizer {
      *         headToHead 同一回答里目标与竞品都被推荐时谁排在前面；
      *         advantageScenes 竞品推荐率高于目标的问题意图；
      *         dimensions 对比问题中各维度的胜负次数；
+     *         excludedDimensionResults 没有计入 dimensions 的维度胜负条数（问题里没有目标，胜负的文字也没点到目标）；
      *         competitorReasons 竞品被推荐的理由排行；
      *         candidates 回答中新出现的同类产品
      */
     public JSONObject buildCompetitorComparison(List<ReportAnswerFacts> judged, JSONObject project, Map<String, String> dimensionMapping) {
         List<String> competitors = resultRuleAnalyzer.convertToStringList(project.get("competitors"));
+        List<String> targetNames = resultRuleAnalyzer.listTargetNames(project);
         Predicate<ReportAnswerFacts> nonBrandOrComparison = fact -> fact.isNonBrandQuestion() || fact.isComparisonQuestion();
         return new JSONObject(true)
                 .fluentPut("brands", listBrandVisibilityByModel(judged, project.getString("name"), competitors))
                 .fluentPut("headToHead", listHeadToHead(judged.stream().filter(nonBrandOrComparison).toList(), competitors))
                 .fluentPut("advantageScenes", listCompetitorAdvantageScenes(judged, competitors))
-                .fluentPut("dimensions", listComparisonDimensions(judged, dimensionMapping))
+                .fluentPut("dimensions", listComparisonDimensions(judged, targetNames, dimensionMapping))
+                .fluentPut("excludedDimensionResults", countExcludedDimensionResults(judged, targetNames))
                 .fluentPut("competitorReasons", reportDimensionRanking.listDimensionRanking(judged, nonBrandOrComparison, "RECOMMEND_REASON", competitors, dimensionMapping))
                 .fluentPut("candidates", listCandidates(judged));
     }
@@ -183,11 +200,14 @@ public class ReportCompetitorSummarizer {
 
     /**
      * 分维度胜负：对比问题里，目标在每个比较维度上相对竞品赢、输、平各几次，按出现次数降序。
+     * <p>只计入确实在说目标的胜负，判断见 {@link #isDimensionResultAboutTarget}。</p>
      * @param judged 判定成功的回答
+     * @param targetNames 目标名称与别名
      * @param dimensionMapping 维度归一映射
      * @return 每个维度一行：dimension、win、lose、tie、examples（原文示例，含对比的竞品）
      */
-    private JSONArray listComparisonDimensions(List<ReportAnswerFacts> judged, Map<String, String> dimensionMapping) {
+    private JSONArray listComparisonDimensions(List<ReportAnswerFacts> judged, List<String> targetNames, Map<String, String> dimensionMapping) {
+        // 1. 逐条回答、逐条维度胜负累计：只看对比问题，按归一后的维度名汇总赢、输、平，并留原文示例
         Map<String, JSONObject> byDimension = new LinkedHashMap<>();
         for (ReportAnswerFacts fact : judged) {
             if (!fact.isComparisonQuestion()) {
@@ -195,6 +215,10 @@ public class ReportCompetitorSummarizer {
             }
             for (JSONObject point : listPoints(fact.answer())) {
                 if (!"DIMENSION_RESULT".equals(point.getString("type")) || point.getString("dimension") == null) {
+                    continue;
+                }
+                // 说的是竞品之间谁强谁弱的胜负不能记到目标头上；被排除的条数另行统计并展示
+                if (!isDimensionResultAboutTarget(fact, point, targetNames)) {
                     continue;
                 }
                 String dimension = dimensionMapping.getOrDefault(point.getString("dimension"), point.getString("dimension"));
@@ -210,10 +234,40 @@ public class ReportCompetitorSummarizer {
                 reportDimensionRanking.addExample(row.getJSONArray("examples"), fact, point);
             }
         }
+        // 2. 按出现次数从多到少排列，只保留前 RANKING_LIMIT 个维度
         JSONArray rows = new JSONArray();
         byDimension.values().stream().sorted((left, right) -> Integer.compare(countOutcomes(right), countOutcomes(left)))
                 .limit(RANKING_LIMIT).forEach(rows::add);
         return rows;
+    }
+
+    /**
+     * 判断一条维度胜负是不是在说目标。
+     * <p>问题里点了目标的对比题，比较的一方就是目标，全部计入。问题里没有目标的对比题分两种：回答把目标（或点名把目标归入的一类产品）
+     * 拿来比较时，判定的概括或引用的原文里会出现目标名称，计入；回答只比较了别的品牌时，判定写下的“赢、输”说的是那些品牌之间，
+     * 文字里没有目标，不计入。</p>
+     * @param fact 这条胜负所在的回答
+     * @param point 判定给出的一条维度胜负：content 为概括，quote 为回答原文片段
+     * @param targetNames 目标名称与别名
+     * @return 问题点了目标，或这条胜负的概括、原文里出现了目标名称或别名
+     */
+    private boolean isDimensionResultAboutTarget(ReportAnswerFacts fact, JSONObject point, List<String> targetNames) {
+        return fact.targetNamed() || resultRuleAnalyzer.containsAnyName(point.getString("content"), targetNames)
+                || resultRuleAnalyzer.containsAnyName(point.getString("quote"), targetNames);
+    }
+
+    /**
+     * 数出没有计入分维度胜负的条数，让页面写明“另有 N 条说的是竞品之间，未计入”，不悄悄去掉。
+     * @param judged 判定成功的回答
+     * @param targetNames 目标名称与别名
+     * @return 对比问题里有维度名、但不是在说目标的维度胜负条数
+     */
+    private long countExcludedDimensionResults(List<ReportAnswerFacts> judged, List<String> targetNames) {
+        return judged.stream().filter(ReportAnswerFacts::isComparisonQuestion)
+                .mapToLong(fact -> listPoints(fact.answer()).stream()
+                        .filter(point -> "DIMENSION_RESULT".equals(point.getString("type")) && point.getString("dimension") != null)
+                        .filter(point -> !isDimensionResultAboutTarget(fact, point, targetNames)).count())
+                .sum();
     }
 
     /**

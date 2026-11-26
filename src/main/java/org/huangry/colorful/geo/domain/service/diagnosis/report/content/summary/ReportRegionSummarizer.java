@@ -18,15 +18,32 @@ import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import static org.huangry.colorful.geo.domain.service.diagnosis.report.content.summary.ReportMetrics.RANKING_LIMIT;
 import static org.huangry.colorful.geo.domain.service.diagnosis.report.content.summary.ReportMetrics.calculateRate;
 import static org.huangry.colorful.geo.domain.service.diagnosis.report.content.summary.ReportMetrics.countMatching;
 import static org.huangry.colorful.geo.domain.service.diagnosis.report.content.summary.ReportMetrics.round;
 
 /**
- * 诊断报告 ⑦ 地域报告：按问题面向的地域把回答分组，给出每个地域的宣传状态、大模型可见度和机会清单。
- * <p>地域取自诊断任务冻结的问题快照；不分地域的回答不计入，只给出条数。指标口径与 ①–④ 相同，只是范围缩小到一个地域。
- * 机会编号形如 R1-O1（第 1 个地域的第 1 个机会），全报告唯一，供提升策略引用和页面「看证据」。</p>
- * <p>纯计算，不调用模型、不访问数据库；各地域的提升策略由后台执行器调用模型另行写入 strategy。</p>
+ * <pre>
+ * 诊断报告 ⑦ 地域报告的规则部分：按问题面向的地域把回答分组，给出每个地域的宣传状态、大模型可见度和机会清单
+ *
+ * 负责：
+ * - 宣传状态：逐条判断回答对目标的态度，给出正向、中性、负向或证据不足的结论，列出计为正面、负面的回答和正负面证据
+ * - 大模型可见度：该地域各模型的核心指标，以及目标与预设竞品的对比
+ * - 机会清单：按固定规则挑出可以争取的点，每条带编号、数字和证据
+ *
+ * 核心入口：
+ * - buildRegionReport(...)：ReportSummarizer 统计整份报告时调用
+ *
+ * 约束：
+ * - 纯计算，不调用模型、不访问数据库
+ * - 地域取自诊断任务冻结的问题快照；不分地域的回答不计入，只给出条数
+ * - 指标口径与 ①–④ 相同，只是范围缩小到一个地域
+ * - 机会编号形如 R1-O1（第 1 个地域的第 1 个机会），全报告唯一，供提升策略引用和页面「看证据」
+ *
+ * 不负责：
+ * - 各地域的提升策略：由后台执行器调用模型另行写入 strategy（RegionStrategyGenerator）
+ * </pre>
  */
 @Component
 public class ReportRegionSummarizer {
@@ -44,6 +61,8 @@ public class ReportRegionSummarizer {
     private static final int TOP_LIMIT = 3;
     /** 算作正面态度的推荐强度：首推、强推。 */
     private static final Set<String> POSITIVE_STRENGTHS = Set.of("FIRST_CHOICE", "STRONG");
+    /** 回答计为正面或负面的原因：点名题，按判定给出的品牌情感。其他题的原因直接写目标的推荐强度。 */
+    private static final String REASON_BRAND_SENTIMENT = "BRAND_SENTIMENT";
     /** 我方内容的来源类型：官网、我方发布。 */
     private static final Set<String> OWN_SOURCE_TYPES = Set.of(ResultRuleAnalyzer.SOURCE_OWNED, ResultRuleAnalyzer.SOURCE_PUBLISHED);
 
@@ -122,16 +141,19 @@ public class ReportRegionSummarizer {
      * @param judged 该地域判定成功的回答
      * @param targetNames 目标名称与别名，推荐理由和保留意见只统计针对目标的
      * @param dimensionMapping 维度归一映射
-     * @return status（POSITIVE、NEUTRAL、NEGATIVE、INSUFFICIENT）、正中负回答数与正负占比，positives、recommendReasons、
+     * @return status（POSITIVE、NEUTRAL、NEGATIVE、INSUFFICIENT）、正中负回答数与正负占比，
+     *         positiveAnswers、negativeAnswers 计为正面、负面的回答（见 {@link #listAttitudeAnswers}），positives、recommendReasons、
      *         negatives、reservations 维度排行（附原文），factErrors 错误信息，negativeSources 负面回答引用的平台
      */
     private JSONObject buildPortrayal(List<ReportAnswerFacts> judged, List<String> targetNames, Map<String, String> dimensionMapping) {
-        // 1. 逐条判断对目标的态度，没有态度的回答不计入
-        Map<String, Long> attitudes = judged.stream().map(this::judgeAttitude).filter(Objects::nonNull)
-                .collect(Collectors.groupingBy(attitude -> attitude, Collectors.counting()));
-        long positive = attitudes.getOrDefault("POSITIVE", 0L);
-        long neutral = attitudes.getOrDefault("NEUTRAL", 0L);
-        long negative = attitudes.getOrDefault("NEGATIVE", 0L);
+        // 1. 逐条判断对目标的态度，没有态度的回答不计入；按态度分组并保持问题顺序，正面、负面的回答要列给页面核对
+        Map<String, List<ReportAnswerFacts>> byAttitude = judged.stream().filter(fact -> judgeAttitude(fact) != null)
+                .collect(Collectors.groupingBy(this::judgeAttitude, LinkedHashMap::new, Collectors.toList()));
+        List<ReportAnswerFacts> positiveFacts = byAttitude.getOrDefault("POSITIVE", List.of());
+        List<ReportAnswerFacts> negativeFacts = byAttitude.getOrDefault("NEGATIVE", List.of());
+        long positive = positiveFacts.size();
+        long neutral = byAttitude.getOrDefault("NEUTRAL", List.of()).size();
+        long negative = negativeFacts.size();
         long total = positive + neutral + negative;
         // 2. 证据：正面点、负面点只看点名题，推荐理由与保留意见只看针对目标的；错误信息与负面来源沿用 ③ 的口径
         Predicate<ReportAnswerFacts> anyQuestion = fact -> true;
@@ -143,6 +165,8 @@ public class ReportRegionSummarizer {
                 .fluentPut("negative", negative)
                 .fluentPut("positiveRate", calculateRate(positive, total))
                 .fluentPut("negativeRate", calculateRate(negative, total))
+                .fluentPut("positiveAnswers", listAttitudeAnswers(positiveFacts))
+                .fluentPut("negativeAnswers", listAttitudeAnswers(negativeFacts))
                 .fluentPut("positives", reportDimensionRanking.listDimensionRanking(judged, ReportAnswerFacts::isBrandQuestion, "POSITIVE", null, dimensionMapping))
                 .fluentPut("recommendReasons", reportDimensionRanking.listDimensionRanking(judged, anyQuestion, "RECOMMEND_REASON", targetNames, dimensionMapping))
                 .fluentPut("negatives", reportDimensionRanking.listDimensionRanking(judged, ReportAnswerFacts::isBrandQuestion, "NEGATIVE", null, dimensionMapping))
@@ -152,7 +176,25 @@ public class ReportRegionSummarizer {
     }
 
     /**
+     * 把计为正面或负面的回答列出来：页面在计数下面逐条展示并可打开回答，用来核对“正面 N 条”“负面 N 条”是哪几条、凭什么计入。
+     * @param facts 态度相同的回答，按问题顺序
+     * @return 前 RANKING_LIMIT 条，每条含 resultId、channelName、question（问题原文）、reason（计入原因：点名题为 BRAND_SENTIMENT，
+     *         其他题为目标的推荐强度，正面是 FIRST_CHOICE 或 STRONG，负面是 NOT_RECOMMENDED）
+     */
+    private JSONArray listAttitudeAnswers(List<ReportAnswerFacts> facts) {
+        JSONArray answers = new JSONArray();
+        facts.stream().limit(RANKING_LIMIT).forEach(fact -> answers.add(new JSONObject(true)
+                .fluentPut("resultId", fact.answer().result().getId())
+                .fluentPut("channelName", fact.channelName())
+                .fluentPut("question", fact.questionText())
+                // 与 judgeAttitude 的两个分支对应：点名题凭品牌情感计入，其他题凭目标的推荐强度计入
+                .fluentPut("reason", fact.isBrandQuestion() ? REASON_BRAND_SENTIMENT : fact.target().getString("strength"))));
+        return answers;
+    }
+
+    /**
      * 判断一条回答对目标的态度：点名题看品牌情感；其他题看目标的推荐强度，首推、强推为正面，明确不推荐为负面，其余为中性。
+     * <p>标了点名题、但问的不是目标的回答不算点名题（见 ReportAnswerFacts#isOffTargetBrandQuestion），按其他题看推荐强度。</p>
      * @param fact 判定成功的回答
      * @return POSITIVE、NEUTRAL、NEGATIVE；点名题没有情感、其他题没提到目标或没有推荐强度时为 null（不计入）
      */
